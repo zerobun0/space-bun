@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Space Defender</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050505;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+        }
+        canvas {
+            display: block;
+        }
+        /* UI LAYER */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+        }
+        .hud-top {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            box-sizing: border-box;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            color: #0ff;
+            text-shadow: 0 0 10px #0ff;
+            font-size: 24px;
+            font-weight: bold;
+            pointer-events: auto;
+        }
+        .hud-stats {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .small-text {
+            font-size: 14px;
+            color: #aaa;
+            text-shadow: none;
+        }
+        /* SCREENS */
+        #start-screen, #game-over-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            z-index: 10;
+            pointer-events: auto;
+            transition: opacity 0.3s;
+        }
+        #auth-modal {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            z-index: 50;
+            pointer-events: auto;
+        }
+        .hidden {
+            display: none !important;
+        }
+        h1 {
+            font-size: 60px;
+            margin: 0 0 10px 0;
+            color: #fff;
+            text-transform: uppercase;
+            letter-spacing: 5px;
+            text-shadow: 0 0 20px #f0f;
+            text-align: center;
+        }
+        button {
+            background: rgba(0, 255, 255, 0.1);
+            color: #0ff;
+            border: 2px solid #0ff;
+            padding: 15px 40px;
+            font-size: 20px;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            transition: all 0.2s;
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.2);
+            font-weight: bold;
+            margin: 10px;
+            min-width: 200px;
+        }
+        button:hover {
+            background: #0ff;
+            color: #000;
+            box-shadow: 0 0 30px #0ff;
+        }
+        button:disabled {
+            border-color: #555;
+            color: #555;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+        .ai-btn {
+            border-color: #b0f;
+            color: #b0f;
+            box-shadow: 0 0 15px rgba(180, 0, 255, 0.2);
+        }
+        .ai-btn:hover {
+            background: #b0f;
+            color: #fff;
+            box-shadow: 0 0 30px #b0f;
+        }
+        .ai-text-box {
+            font-family: 'Courier New', Courier, monospace;
+            color: #b0f;
+            margin: 10px 0;
+            max-width: 600px;
+            text-align: center;
+            min-height: 1.5em;
+            font-style: italic;
+            padding: 10px;
+            background: rgba(20, 0, 30, 0.5);
+            border-radius: 5px;
+        }
+        input {
+            background: rgba(0,0,0,0.5);
+            border: 1px solid #0ff;
+            color: #fff;
+            padding: 10px;
+            font-size: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            width: 250px;
+            letter-spacing: 3px;
+            font-family: monospace;
+            text-transform: uppercase;
+        }
+        input:focus {
+            outline: none;
+            box-shadow: 0 0 15px #0ff;
+            background: rgba(0, 50, 50, 0.8);
+        }
+        .health-bar-container {
+            width: 200px;
+            height: 20px;
+            border: 2px solid #fff;
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        #health-fill {
+            width: 100%;
+            height: 100%;
+            background: #0f0;
+            box-shadow: 0 0 10px #0f0;
+            transition: width 0.2s;
+        }
+        .profile-badge {
+            border: 1px solid #0ff;
+            padding: 10px;
+            background: rgba(0,0,0,0.5);
+            cursor: pointer;
+            text-align: right;
+        }
+        .profile-badge:hover {
+            background: rgba(0, 255, 255, 0.2);
+        }
+        #generated-code-display {
+            font-size: 32px;
+            color: #ff0;
+            font-family: monospace;
+            margin: 20px 0;
+            padding: 20px;
+            border: 2px dashed #ff0;
+            background: rgba(255, 255, 0, 0.1);
+        }
+        .warning-text {
+            color: #f55;
+            font-size: 14px;
+            margin-top: 5px;
+            max-width: 300px;
+            text-align: center;
+        }
+        .github-link {
+            margin-top: 30px;
+            color: #666;
+            text-decoration: none;
+            font-size: 14px;
+            border-bottom: 1px solid #666;
+            transition: color 0.2s;
+            font-family: monospace;
+        }
+        .github-link:hover {
+            color: #fff;
+            border-color: #fff;
+        }
+        .tab-container {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 20px;
+            border: 1px solid #0ff;
+            cursor: pointer;
+            opacity: 0.5;
+        }
+        .tab.active {
+            background: #0ff;
+            color: #000;
+            opacity: 1;
+        }
+        #loading-indicator {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            color: #0ff;
+            font-family: monospace;
+            animation: blink 1s infinite;
+            z-index: 100;
+        }
+        @keyframes blink { 0% { opacity: 0.2; } 50% { opacity: 1; } 100% { opacity: 0.2; } }
+    </style>
+</head>
+<body>
+
+    <!-- Game Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- UI Layer -->
+    <div id="ui-layer">
+        <div class="hud-top">
+            <div class="hud-stats">
+                <div>SCORE: <span id="score">0</span></div>
+                <div class="small-text">BEST: <span id="hud-high-score">0</span></div>
+            </div>
+            
+            <!-- Profile Section in Top Right -->
+            <div id="profile-badge" class="profile-badge">
+                <div id="profile-name">GUEST</div>
+                <div class="small-text" id="profile-status">Click to Login</div>
+            </div>
+        </div>
+        
+        <div style="position: absolute; bottom: 20px; left: 20px;">
+            <div class="health-bar-container">
+                <div id="health-fill"></div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="loading-indicator" class="hidden">CONNECTING...</div>
+
+    <!-- Auth Modal -->
+    <div id="auth-modal" class="hidden">
+        <h1>NEON ID</h1>
+        
+        <div class="tab-container">
+            <div class="tab active" id="tab-login" onclick="switchTab('login')">LOGIN</div>
+            <div class="tab" id="tab-register" onclick="switchTab('register')">NEW USER</div>
+        </div>
+
+        <!-- Login Form -->
+        <div id="login-form">
+            <p>Enter your Secret Code to sync scores.</p>
+            <input type="text" id="login-code-input" placeholder="ENTER CODE" maxlength="10">
+            <div id="login-error" style="color: #f00; height: 20px; margin-bottom: 10px;"></div>
+            <button id="do-login-btn">LOAD ACCOUNT</button>
+        </div>
+
+        <!-- Register Form -->
+        <div id="register-form" class="hidden">
+            <p>Generate a unique code. Keep it safe!</p>
+            <div id="generated-code-display">--- ---</div>
+            <p class="warning-text">Write this down. It is your only way to login.</p>
+            <button id="generate-btn">GENERATE NEW ID</button>
+            <button id="confirm-create-btn" class="hidden">START WITH THIS ID</button>
+        </div>
+
+        <button onclick="closeAuth()" style="margin-top: 30px; border-color: #555; color: #aaa; font-size: 14px; padding: 10px 20px;">CANCEL / PLAY AS GUEST</button>
+    </div>
+
+    <!-- Start Screen -->
+    <div id="start-screen">
+        <h1>Neon Void</h1>
+        <p id="mission-text">WASD to Move. Mouse to Aim. Click to Shoot.</p>
+        <div style="margin-bottom: 20px; color: #ff0; font-weight: bold;">
+            HIGH SCORE: <span id="start-high-score">0</span>
+        </div>
+        
+        <button id="start-btn">Start Mission</button>
+        <button id="auth-btn-start">Login / Save Score</button>
+        
+        <!-- AI Feature -->
+        <button id="ai-mission-btn" class="ai-btn">✨ Decode Signal</button>
+        
+        <a href="https://github.com/YOUR_USERNAME/neon-space-defender" target="_blank" class="github-link">
+            View Source on GitHub
+        </a>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="game-over-screen" class="hidden">
+        <h1>Mission Failed</h1>
+        <p>Final Score: <span id="final-score">0</span></p>
+        <p style="color: #0ff;">Your Best: <span id="final-high-score">0</span></p>
+        
+        <div id="ai-analysis-text" class="ai-text-box"></div>
+        <button id="ai-analysis-btn" class="ai-btn">✨ Upload Black Box</button>
+        
+        <div style="margin-top: 20px;">
+            <button id="restart-btn">Retry</button>
+            <button onclick="openAuth()">Sync Score</button>
+        </div>
+    </div>
+
+<script type="module">
+/**
+ * FIREBASE INTEGRATION & GAME ENGINE
+ */
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { getFirestore, doc, getDoc, setDoc, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+// --- Gemini API Helper ---
+const apiKey = ""; // To make this work on GitHub, you'd need a backend proxy or put a key here (not recommended for public repos)
+async function callGemini(prompt) {
+    try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+        });
+        const data = await response.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || "Signal Lost...";
+    } catch (e) {
+        console.error(e);
+        return "Signal Lost (Offline)";
+    }
+}
+
+// --- Firebase Config Handling ---
+// NOTE: On GitHub, these internal variables won't exist, so we fallback to empty
+let firebaseConfig = {};
+try {
+    if (typeof __firebase_config !== 'undefined') {
+        firebaseConfig = JSON.parse(__firebase_config);
+    }
+} catch(e) { console.log("Using offline/local config"); }
+
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app';
+
+// Global State
+let dbReady = false;
+let userCode = localStorage.getItem('neon_user_code'); 
+let userHighScore = parseInt(localStorage.getItem('neon_local_high_score') || '0');
+
+// Initialize Firebase (Only if config exists)
+let app, auth, db;
+if (firebaseConfig.apiKey) {
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+    initAuth();
+} else {
+    // Offline Mode for GitHub Hosting (without own keys)
+    console.log("Running in offline mode (Local Storage only)");
+    document.getElementById('loading-indicator').classList.add('hidden');
+    updateAuthUI();
+}
+
+// --- Auth Logic ---
+async function initAuth() {
+    document.getElementById('loading-indicator').classList.remove('hidden');
+    try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+            await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+            await signInAnonymously(auth);
+        }
+        dbReady = true;
+        document.getElementById('loading-indicator').classList.add('hidden');
+        if (userCode) await loadUserProfile(userCode);
+    } catch (error) {
+        console.error("Auth Failed - Offline Mode", error);
+        document.getElementById('loading-indicator').classList.add('hidden');
+    }
+}
+
+async function loadUserProfile(code) {
+    if (!dbReady) return false;
+    try {
+        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'scores', code);
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
+            const data = snap.data();
+            userCode = code;
+            userHighScore = data.highScore || 0;
+            localStorage.setItem('neon_user_code', code);
+            localStorage.setItem('neon_local_high_score', userHighScore);
+            updateAuthUI();
+            return true;
+        }
+        return false;
+    } catch (e) { console.error(e); return false; }
+}
+
+async function createNewUser() {
+    if (!dbReady) { 
+        // Fallback for offline mode to simulate ID generation
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; 
+        let code = '';
+        for(let i=0; i<6; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+        code = code.slice(0,3) + '-' + code.slice(3);
+        return code;
+    }
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; 
+    let code = '';
+    for(let i=0; i<6; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+    code = code.slice(0,3) + '-' + code.slice(3);
+    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'scores', code);
+    await setDoc(docRef, { highScore: 0, createdAt: new Date().toISOString() });
+    return code;
+}
+
+async function saveScore(newScore) {
+    // Always save locally
+    localStorage.setItem('neon_local_high_score', userHighScore);
+    
+    if (!userCode || !dbReady) return; 
+    if (newScore > userHighScore) {
+        userHighScore = newScore;
+        updateAuthUI();
+        const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'scores', userCode);
+        await setDoc(docRef, { highScore: userHighScore }, { merge: true });
+    }
+}
+
+// --- UI Functions ---
+window.updateAuthUI = function() {
+    const profileName = document.getElementById('profile-name');
+    const profileStatus = document.getElementById('profile-status');
+    document.getElementById('hud-high-score').innerText = userHighScore;
+    document.getElementById('start-high-score').innerText = userHighScore;
+    document.getElementById('final-high-score').innerText = userHighScore;
+
+    if (userCode) {
+        profileName.innerText = "PILOT " + userCode;
+        profileName.style.color = "#ff0";
+        profileStatus.innerText = dbReady ? "SYNC ACTIVE" : "LOCAL MODE";
+    } else {
+        profileName.innerText = "GUEST";
+        profileName.style.color = "#fff";
+        profileStatus.innerText = "NOT SAVING";
+    }
+}
+
+window.openAuth = function() { document.getElementById('auth-modal').classList.remove('hidden'); }
+window.closeAuth = function() { document.getElementById('auth-modal').classList.add('hidden'); }
+window.switchTab = function(tab) {
+    document.getElementById('tab-login').classList.toggle('active', tab === 'login');
+    document.getElementById('tab-register').classList.toggle('active', tab === 'register');
+    document.getElementById('login-form').classList.toggle('hidden', tab !== 'login');
+    document.getElementById('register-form').classList.toggle('hidden', tab !== 'register');
+}
+
+document.getElementById('profile-badge').addEventListener('click', window.openAuth);
+document.getElementById('auth-btn-start').addEventListener('click', window.openAuth);
+
+document.getElementById('do-login-btn').addEventListener('click', async () => {
+    const input = document.getElementById('login-code-input');
+    const err = document.getElementById('login-error');
+    const btn = document.getElementById('do-login-btn');
+    
+    const code = input.value.trim().toUpperCase();
+    if (code.length < 3) { err.innerText = "Invalid Code"; return; }
+    
+    if (!dbReady) {
+        // Offline mode logic
+        userCode = code;
+        localStorage.setItem('neon_user_code', code);
+        updateAuthUI();
+        window.closeAuth();
+        return;
+    }
+
+    btn.innerText = "CHECKING..."; btn.disabled = true;
+    const success = await loadUserProfile(code);
+    if (success) { window.closeAuth(); input.value = ""; err.innerText = ""; }
+    else { err.innerText = "Code not found!"; }
+    btn.innerText = "LOAD ACCOUNT"; btn.disabled = false;
+});
+
+let generatedCodeTemp = "";
+document.getElementById('generate-btn').addEventListener('click', async () => {
+    const display = document.getElementById('generated-code-display');
+    const btn = document.getElementById('generate-btn');
+    
+    generatedCodeTemp = await createNewUser();
+    if (generatedCodeTemp) {
+        btn.disabled = true; btn.innerText = "GENERATING...";
+        display.innerText = generatedCodeTemp;
+        btn.classList.add('hidden');
+        document.getElementById('confirm-create-btn').classList.remove('hidden');
+    }
+});
+
+document.getElementById('confirm-create-btn').addEventListener('click', async () => {
+    if (dbReady) {
+        await loadUserProfile(generatedCodeTemp);
+    } else {
+        userCode = generatedCodeTemp;
+        localStorage.setItem('neon_user_code', userCode);
+        updateAuthUI();
+    }
+    window.closeAuth();
+    document.getElementById('generate-btn').classList.remove('hidden');
+    document.getElementById('generate-btn').disabled = false;
+    document.getElementById('generate-btn').innerText = "GENERATE NEW ID";
+    document.getElementById('confirm-create-btn').classList.add('hidden');
+    document.getElementById('generated-code-display').innerText = "--- ---";
+});
+
+document.getElementById('ai-mission-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('ai-mission-btn');
+    const text = document.getElementById('mission-text');
+    const originalText = btn.innerText;
+    btn.disabled = true; btn.innerText = "DECODING...";
+    const prompt = "Generate a very short (1 sentence) sci-fi mission briefing for a space shooter game. Be cryptic and cool. e.g. 'Intercept vector alpha. No survivors.'";
+    const response = await callGemini(prompt);
+    text.innerText = response;
+    btn.innerText = originalText; btn.disabled = false;
+});
+
+document.getElementById('ai-analysis-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('ai-analysis-btn');
+    const box = document.getElementById('ai-analysis-text');
+    btn.disabled = true; btn.innerText = "UPLOADING...";
+    const prompt = `The player just finished a game of space defender with a score of ${score}. The high score is ${userHighScore}. Write a 1-sentence after-action report. If score is low (<500), roast them. If score is high (>2000), praise them.`;
+    const response = await callGemini(prompt);
+    box.innerText = response;
+    btn.classList.add('hidden');
+});
+
+
+/**
+ * GAME ENGINE
+ */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const finalScoreEl = document.getElementById('final-score');
+const startScreen = document.getElementById('start-screen');
+const gameOverScreen = document.getElementById('game-over-screen');
+const healthFill = document.getElementById('health-fill');
+
+let width, height;
+let gameRunning = false;
+let animationId;
+let score = 0;
+let frame = 0;
+const keys = { w: false, a: false, s: false, d: false };
+const mouse = { x: 0, y: 0, down: false };
+let player; let projectiles = []; let enemies = []; let particles = []; let stars = [];
+
+function randomRange(min, max) { return Math.random() * (max - min) + min; }
+function resize() { width = canvas.width = window.innerWidth; height = canvas.height = window.innerHeight; }
+window.addEventListener('resize', resize);
+resize();
+
+class Player {
+    constructor() {
+        this.x = width / 2; this.y = height / 2;
+        this.radius = 15; this.color = '#0ff';
+        this.angle = 0; this.maxHealth = 100; this.health = this.maxHealth;
+        this.lastShot = 0; this.fireRate = 8; this.friction = 0.92;
+        this.velocity = { x: 0, y: 0 };
+    }
+    draw() {
+        ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
+        ctx.beginPath(); ctx.moveTo(20, 0); ctx.lineTo(-15, 15); ctx.lineTo(-5, 0); ctx.lineTo(-15, -15); ctx.closePath();
+        ctx.fillStyle = '#000'; ctx.strokeStyle = this.color; ctx.lineWidth = 2; ctx.fill(); ctx.stroke();
+        ctx.shadowBlur = 15; ctx.shadowColor = this.color; ctx.beginPath(); ctx.moveTo(-15, 5); ctx.lineTo(-25, 0); ctx.lineTo(-15, -5); ctx.stroke();
+        ctx.restore();
+    }
+    update() {
+        let dx = 0; let dy = 0;
+        if (keys.w) dy -= 1; if (keys.s) dy += 1; if (keys.a) dx -= 1; if (keys.d) dx += 1;
+        if (dx !== 0 || dy !== 0) { const l = Math.hypot(dx, dy); dx /= l; dy /= l; }
+        this.velocity.x += dx * 0.8; this.velocity.y += dy * 0.8;
+        this.x += this.velocity.x; this.y += this.velocity.y;
+        this.velocity.x *= this.friction; this.velocity.y *= this.friction;
+        if (this.x < 15) { this.x = 15; this.velocity.x *= -0.5; }
+        if (this.x > width-15) { this.x = width-15; this.velocity.x *= -0.5; }
+        if (this.y < 15) { this.y = 15; this.velocity.y *= -0.5; }
+        if (this.y > height-15) { this.y = height-15; this.velocity.y *= -0.5; }
+        this.angle = Math.atan2(mouse.y - this.y, mouse.x - this.x);
+        if (mouse.down && frame - this.lastShot > this.fireRate) this.shoot();
+    }
+    shoot() {
+        this.lastShot = frame;
+        const vel = { x: Math.cos(this.angle) * 15, y: Math.sin(this.angle) * 15 };
+        const sx = this.x + Math.cos(this.angle) * 20;
+        const sy = this.y + Math.sin(this.angle) * 20;
+        projectiles.push(new Projectile(sx, sy, vel));
+        this.velocity.x -= Math.cos(this.angle) * 2; this.velocity.y -= Math.sin(this.angle) * 2;
+        createParticles(sx, sy, '#fff', 3);
+    }
+    takeDamage(amount) {
+        this.health -= amount;
+        healthFill.style.width = `${(this.health / this.maxHealth) * 100}%`;
+        healthFill.style.background = this.health < 30 ? '#f00' : '#0f0';
+        createParticles(this.x, this.y, '#f00', 10);
+        shakeScreen(5);
+        if (this.health <= 0) endGame();
+    }
+}
+
+class Projectile {
+    constructor(x, y, vel) { this.x = x; this.y = y; this.velocity = vel; this.radius = 4; this.color = '#ff0'; }
+    draw() {
+        ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2);
+        ctx.fillStyle = this.color; ctx.shadowBlur = 10; ctx.shadowColor = this.color; ctx.fill(); ctx.shadowBlur = 0;
+    }
+    update() { this.x += this.velocity.x; this.y += this.velocity.y; }
+}
+
+class Enemy {
+    constructor() {
+        if (Math.random() < 0.5) { this.x = Math.random()<.5?-30:width+30; this.y = Math.random()*height; }
+        else { this.x = Math.random()*width; this.y = Math.random()<.5?-30:height+30; }
+        this.radius = randomRange(15, 25);
+        this.color = `hsl(${randomRange(300, 360)}, 100%, 50%)`;
+        const mult = 1 + (score / 5000);
+        this.speed = randomRange(1, 2) * mult;
+        this.angle = 0; this.spinSpeed = randomRange(-0.1, 0.1);
+        this.points = Math.floor(100 / this.speed);
+    }
+    draw() {
+        ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
+        ctx.strokeStyle = this.color; ctx.lineWidth = 3; ctx.shadowBlur = 10; ctx.shadowColor = this.color;
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+            const theta = (i * Math.PI * 2) / 6;
+            if (i === 0) ctx.moveTo(Math.cos(theta)*this.radius, Math.sin(theta)*this.radius);
+            else ctx.lineTo(Math.cos(theta)*this.radius, Math.sin(theta)*this.radius);
+        }
+        ctx.closePath(); ctx.stroke();
+        ctx.beginPath(); ctx.arc(0, 0, this.radius * 0.4, 0, Math.PI * 2); ctx.fillStyle = this.color; ctx.fill();
+        ctx.restore();
+    }
+    update() {
+        const angle = Math.atan2(player.y - this.y, player.x - this.x);
+        this.x += Math.cos(angle) * this.speed; this.y += Math.sin(angle) * this.speed;
+        this.angle += this.spinSpeed;
+    }
+}
+
+class Particle {
+    constructor(x, y, col, vel) { this.x=x; this.y=y; this.color=col; this.velocity=vel; this.alpha=1; this.life=randomRange(0.01, 0.03); }
+    draw() { ctx.save(); ctx.globalAlpha=this.alpha; ctx.fillStyle=this.color; ctx.beginPath(); ctx.arc(this.x, this.y, 2, 0, Math.PI*2); ctx.fill(); ctx.restore(); }
+    update() { this.x+=this.velocity.x; this.y+=this.velocity.y; this.alpha-=this.life; }
+}
+class Star {
+    constructor() { this.x=Math.random()*width; this.y=Math.random()*height; this.radius=Math.random()*1.5; this.alpha=Math.random(); }
+    draw() { ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2); ctx.fillStyle=`rgba(255,255,255,${this.alpha})`; ctx.fill(); }
+}
+
+function createParticles(x, y, col, c) {
+    for(let i=0; i<c; i++) particles.push(new Particle(x, y, col, {x:(Math.random()-.5)*8, y:(Math.random()-.5)*8}));
+}
+
+let shakeDuration = 0;
+function shakeScreen(frames) { shakeDuration = frames; }
+
+function checkCollisions() {
+    projectiles.forEach((proj, pIndex) => {
+        enemies.forEach((enemy, eIndex) => {
+            if (Math.hypot(proj.x - enemy.x, proj.y - enemy.y) < enemy.radius + proj.radius) {
+                createParticles(enemy.x, enemy.y, enemy.color, 8);
+                score += enemy.points; scoreEl.innerText = score;
+                projectiles.splice(pIndex, 1); enemies.splice(eIndex, 1);
+            }
+        });
+    });
+    enemies.forEach((enemy, index) => {
+        if (Math.hypot(player.x - enemy.x, player.y - enemy.y) < enemy.radius + player.radius) {
+            player.takeDamage(20); createParticles(enemy.x, enemy.y, enemy.color, 15); enemies.splice(index, 1);
+        }
+    });
+}
+
+function init() {
+    // Reset keys to prevent stuck movement
+    keys.w = keys.a = keys.s = keys.d = false;
+    mouse.down = false;
+
+    player = new Player(); projectiles = []; enemies = []; particles = []; stars = [];
+    score = 0; frame = 0; scoreEl.innerText = 0; healthFill.style.width = '100%'; healthFill.style.background = '#0f0';
+    for(let i=0; i<100; i++) stars.push(new Star());
+    gameRunning = true; animate();
+}
+
+function animate() {
+    if (!gameRunning) return;
+    animationId = requestAnimationFrame(animate);
+    ctx.fillStyle = '#050505'; ctx.fillRect(0, 0, width, height);
+    
+    ctx.save();
+    if (shakeDuration > 0) { ctx.translate((Math.random()-.5)*10, (Math.random()-.5)*10); shakeDuration--; }
+    stars.forEach(s => s.draw());
+    if (frame % 60 === 0) { for(let i=0; i<(1+Math.floor(score/1000)); i++) enemies.push(new Enemy()); }
+    player.update(); player.draw();
+    projectiles.forEach((p, i) => { p.update(); p.draw(); if(p.x<0||p.x>width||p.y<0||p.y>height) projectiles.splice(i, 1); });
+    enemies.forEach(e => { e.update(); e.draw(); });
+    particles.forEach((p, i) => { p.update(); p.draw(); if(p.alpha<=0) particles.splice(i, 1); });
+    checkCollisions();
+    ctx.restore();
+    frame++;
+}
+
+function endGame() {
+    gameRunning = false; cancelAnimationFrame(animationId);
+    finalScoreEl.innerText = score;
+    
+    if (score > userHighScore) { 
+        userHighScore = score; 
+        updateAuthUI(); 
+        saveScore(score); 
+    }
+    
+    gameOverScreen.classList.remove('hidden');
+    document.getElementById('ai-analysis-text').innerText = "";
+    document.getElementById('ai-analysis-btn').classList.remove('hidden');
+}
+
+window.addEventListener('keydown', e => { if(e.key==='w'||e.key==='ArrowUp')keys.w=true; if(e.key==='a'||e.key==='ArrowLeft')keys.a=true; if(e.key==='s'||e.key==='ArrowDown')keys.s=true; if(e.key==='d'||e.key==='ArrowRight')keys.d=true; });
+window.addEventListener('keyup', e => { if(e.key==='w'||e.key==='ArrowUp')keys.w=false; if(e.key==='a'||e.key==='ArrowLeft')keys.a=false; if(e.key==='s'||e.key==='ArrowDown')keys.s=false; if(e.key==='d'||e.key==='ArrowRight')keys.d=false; });
+window.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+window.addEventListener('mousedown', () => mouse.down = true);
+window.addEventListener('mouseup', () => mouse.down = false);
+
+document.getElementById('start-btn').addEventListener('click', () => { startScreen.classList.add('hidden'); init(); });
+document.getElementById('restart-btn').addEventListener('click', () => { gameOverScreen.classList.add('hidden'); init(); });
+</script>
+</body>
+</html>

@@ -268,14 +268,18 @@
         }
 
         .online-status {
-            min-height: 18px;
-            font-size: 12px;
-            color: #89c8d6;
+            min-height: 26px;
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+            color: #ff5f6d;
+            text-shadow: 0 0 10px rgba(255, 95, 109, 0.35);
             margin: 4px 0 6px;
         }
 
         .online-status.error {
-            color: #ff8f8f;
+            color: #ff4c5e;
         }
 
         .leaderboard {
@@ -436,9 +440,9 @@
         </div>
 
         <div class="choice-group online-panel">
-            <div class="choice-title">Online Account (No Password Reset)</div>
-            <div id="online-account-text" class="hud-small">Offline mode</div>
-            <div class="online-status" id="online-status"></div>
+            <div class="choice-title">Online Account</div>
+            <div id="online-account-text" class="hud-small"></div>
+            <div class="online-status error" id="online-status">Online account creation is work in progress.</div>
             <div class="online-grid">
                 <input id="auth-email" class="online-input" type="email" placeholder="Email">
                 <input id="auth-password" class="online-input" type="password" placeholder="Password">
@@ -624,6 +628,8 @@ let onlineProfile = {
     maxLevelReached: 1
 };
 
+const ONLINE_WIP_MESSAGE = "Online account creation is work in progress.";
+
 const saveData = loadSave();
 updateStartStats();
 updateHudStats();
@@ -678,6 +684,15 @@ function setOnlineStatus(text, isError = false) {
     onlineStatusEl.classList.toggle("error", isError);
 }
 
+function setOnlineControlsEnabled(enabled) {
+    authEmailEl.disabled = !enabled;
+    authPasswordEl.disabled = !enabled;
+    document.getElementById("register-btn").disabled = !enabled;
+    document.getElementById("login-btn").disabled = !enabled;
+    document.getElementById("logout-btn").disabled = !enabled;
+    document.getElementById("refresh-lb-btn").disabled = !enabled;
+}
+
 function mergedCampaignBest() {
     return Math.max(saveData.campaignBest, onlineProfile.campaignBest || 0);
 }
@@ -695,24 +710,15 @@ function effectiveCombinedBest() {
 }
 
 function updateOnlineAccountText() {
-    if (!firebaseReady) {
-        onlineAccountTextEl.textContent = "Offline mode (set Firebase config to enable online).";
-        return;
-    }
-    if (!currentUser) {
-        onlineAccountTextEl.textContent = "Not logged in.";
-        return;
-    }
-    onlineAccountTextEl.textContent = "Logged in as " + currentUser.email;
+    onlineAccountTextEl.textContent = "";
 }
 
 async function initOnlineSystem() {
-    if (!FIREBASE_CONFIG.apiKey || !FIREBASE_CONFIG.projectId || !FIREBASE_CONFIG.appId) {
-        setOnlineStatus("Online disabled until Firebase config is set.");
-        updateOnlineAccountText();
-        renderLeaderboard([]);
-        return;
-    }
+    setOnlineControlsEnabled(false);
+    setOnlineStatus(ONLINE_WIP_MESSAGE, true);
+    updateOnlineAccountText();
+    renderLeaderboard([]);
+    return;
 
     try {
         const appMod = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js");
@@ -841,10 +847,8 @@ async function loadLeaderboard() {
 }
 
 async function registerOnline() {
-    if (!firebaseReady) {
-        setOnlineStatus("Online is not configured yet.", true);
-        return;
-    }
+    setOnlineStatus(ONLINE_WIP_MESSAGE, true);
+    return;
 
     const email = authEmailEl.value.trim();
     const password = authPasswordEl.value;
@@ -862,10 +866,8 @@ async function registerOnline() {
 }
 
 async function loginOnline() {
-    if (!firebaseReady) {
-        setOnlineStatus("Online is not configured yet.", true);
-        return;
-    }
+    setOnlineStatus(ONLINE_WIP_MESSAGE, true);
+    return;
 
     const email = authEmailEl.value.trim();
     const password = authPasswordEl.value;
@@ -883,7 +885,10 @@ async function loginOnline() {
 }
 
 async function logoutOnline() {
-    if (!firebaseReady) return;
+    if (!firebaseReady) {
+        setOnlineStatus(ONLINE_WIP_MESSAGE, true);
+        return;
+    }
     try {
         await authApi.signOut(authApi.auth);
         setOnlineStatus("Logged out.");
@@ -1706,7 +1711,7 @@ document.getElementById("logout-btn").addEventListener("click", () => {
 });
 
 document.getElementById("refresh-lb-btn").addEventListener("click", () => {
-    loadLeaderboard();
+    setOnlineStatus(ONLINE_WIP_MESSAGE, true);
 });
 
 setMode("campaign");

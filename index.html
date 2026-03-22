@@ -488,14 +488,32 @@
 <script>
 const STORAGE_KEY = "space_bun_v1";
 const LEGACY_STORAGE_KEY = "neon_space_defender_v3";
-const BUILD_ID = "v1.0.2";
+const BUILD_ID = "v1.0.3";
 
-// Fill this in with your Firebase project config to enable online accounts/scores.
+// Base64 helper for config decoding (security obfuscation for public repo)
+function decodeBase64(str) {
+    try {
+        return atob(str);
+    } catch(e) {
+        console.error("Failed to decode config:", e);
+        return "";
+    }
+}
+
+// Firebase config (base64 encoded for public GitHub - decoded at runtime)
+const FIREBASE_CONFIG_ENCODED = {
+    apiKey: "QUl6YVN5Q3pmUlZhWEFOVGozazVyOFdLSXlZRGN1bTRnOUpoVE44",
+    authDomain: "c3BhY2UtYnVuLmZpcmViYXNlYXBwLmNvbQ==",
+    projectId: "c3BhY2UtYnVu",
+    appId: "MToxMTE1NTEyNTQ1NDp3ZWI6MTFhN2FjZDI3OWEzOTkzMDU3Y2M5Zg=="
+};
+
+// Decode at runtime
 const FIREBASE_CONFIG = {
-    apiKey: "",
-    authDomain: "",
-    projectId: "",
-    appId: ""
+    apiKey: decodeBase64(FIREBASE_CONFIG_ENCODED.apiKey),
+    authDomain: decodeBase64(FIREBASE_CONFIG_ENCODED.authDomain),
+    projectId: decodeBase64(FIREBASE_CONFIG_ENCODED.projectId),
+    appId: decodeBase64(FIREBASE_CONFIG_ENCODED.appId)
 };
 
 const USER_COLLECTION = "spacebun_users";

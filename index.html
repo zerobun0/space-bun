@@ -233,6 +233,75 @@
             padding: 9px 16px;
         }
 
+        .small-btn {
+            min-width: 120px;
+            font-size: 12px;
+            letter-spacing: 1px;
+            padding: 8px 10px;
+            margin: 4px;
+        }
+
+        .online-panel {
+            width: min(620px, calc(100% - 28px));
+            margin: 0 0 14px;
+        }
+
+        .online-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .online-input {
+            width: 100%;
+            padding: 8px 10px;
+            border-radius: 8px;
+            border: 1px solid rgba(0, 240, 255, 0.45);
+            background: rgba(3, 14, 20, 0.85);
+            color: #ddf8ff;
+            font-size: 13px;
+        }
+
+        .online-input::placeholder {
+            color: #7fb4c0;
+        }
+
+        .online-status {
+            min-height: 18px;
+            font-size: 12px;
+            color: #89c8d6;
+            margin: 4px 0 6px;
+        }
+
+        .online-status.error {
+            color: #ff8f8f;
+        }
+
+        .leaderboard {
+            margin-top: 8px;
+            border-top: 1px solid rgba(0, 240, 255, 0.2);
+            padding-top: 8px;
+            text-align: left;
+        }
+
+        .leaderboard-title {
+            font-size: 12px;
+            color: #9fd8e2;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .leaderboard ol {
+            margin: 6px 0 0 18px;
+            padding: 0;
+            color: #d8f5ff;
+            font-size: 13px;
+            line-height: 1.55;
+            max-height: 170px;
+            overflow: auto;
+        }
+
         .small-note {
             margin-top: 10px;
             color: #8eb0ba;
@@ -366,6 +435,26 @@
             Highest Level Reached: <span id="start-max-level">1</span>/10
         </div>
 
+        <div class="choice-group online-panel">
+            <div class="choice-title">Online Account (No Password Reset)</div>
+            <div id="online-account-text" class="hud-small">Offline mode</div>
+            <div class="online-status" id="online-status"></div>
+            <div class="online-grid">
+                <input id="auth-email" class="online-input" type="email" placeholder="Email">
+                <input id="auth-password" class="online-input" type="password" placeholder="Password">
+            </div>
+            <div class="row" style="justify-content: flex-start;">
+                <button id="register-btn" class="small-btn">Register</button>
+                <button id="login-btn" class="small-btn">Login</button>
+                <button id="logout-btn" class="small-btn">Logout</button>
+                <button id="refresh-lb-btn" class="small-btn">Refresh Board</button>
+            </div>
+            <div class="leaderboard">
+                <div class="leaderboard-title">Top Pilots</div>
+                <ol id="leaderboard-list"></ol>
+            </div>
+        </div>
+
         <button id="start-btn">Start Run</button>
 
         <div class="row">
@@ -400,6 +489,16 @@
 const STORAGE_KEY = "space_bun_v1";
 const LEGACY_STORAGE_KEY = "neon_space_defender_v3";
 const BUILD_ID = "v1.0.2";
+
+// Fill this in with your Firebase project config to enable online accounts/scores.
+const FIREBASE_CONFIG = {
+    apiKey: "",
+    authDomain: "",
+    projectId: "",
+    appId: ""
+};
+
+const USER_COLLECTION = "spacebun_users";
 
 const campaignLevels = [
     { target: 350, spawnFrames: 88, speedMult: 0.92 },
@@ -459,6 +558,11 @@ const levelBannerSub = document.getElementById("level-banner-sub");
 const startCampaignBestEl = document.getElementById("start-campaign-best");
 const startSurvivalBestEl = document.getElementById("start-survival-best");
 const startMaxLevelEl = document.getElementById("start-max-level");
+const onlineAccountTextEl = document.getElementById("online-account-text");
+const onlineStatusEl = document.getElementById("online-status");
+const authEmailEl = document.getElementById("auth-email");
+const authPasswordEl = document.getElementById("auth-password");
+const leaderboardListEl = document.getElementById("leaderboard-list");
 
 const keys = { w: false, a: false, s: false, d: false };
 const mouse = { x: 0, y: 0, down: false };
@@ -490,6 +594,16 @@ let perkTimers = {
     triShot: 0,
     rapidFire: 0,
     shield: 0
+};
+
+let firebaseReady = false;
+let authApi;
+let dbApi;
+let currentUser = null;
+let onlineProfile = {
+    campaignBest: 0,
+    survivalBest: 0,
+    maxLevelReached: 1
 };
 
 const saveData = loadSave();
@@ -541,14 +655,233 @@ function resetSave() {
     updateHudStats();
 }
 
+function setOnlineStatus(text, isError = false) {
+    onlineStatusEl.textContent = text;
+    onlineStatusEl.classList.toggle("error", isError);
+}
+
+function mergedCampaignBest() {
+    return Math.max(saveData.campaignBest, onlineProfile.campaignBest || 0);
+}
+
+function mergedSurvivalBest() {
+    return Math.max(saveData.survivalBest, onlineProfile.survivalBest || 0);
+}
+
+function mergedMaxLevel() {
+    return Math.max(saveData.maxLevelReached, onlineProfile.maxLevelReached || 1);
+}
+
+function effectiveCombinedBest() {
+    return Math.max(mergedCampaignBest(), mergedSurvivalBest());
+}
+
+function updateOnlineAccountText() {
+    if (!firebaseReady) {
+        onlineAccountTextEl.textContent = "Offline mode (set Firebase config to enable online).";
+        return;
+    }
+    if (!currentUser) {
+        onlineAccountTextEl.textContent = "Not logged in.";
+        return;
+    }
+    onlineAccountTextEl.textContent = "Logged in as " + currentUser.email;
+}
+
+async function initOnlineSystem() {
+    if (!FIREBASE_CONFIG.apiKey || !FIREBASE_CONFIG.projectId || !FIREBASE_CONFIG.appId) {
+        setOnlineStatus("Online disabled until Firebase config is set.");
+        updateOnlineAccountText();
+        renderLeaderboard([]);
+        return;
+    }
+
+    try {
+        const appMod = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js");
+        const authMod = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
+        const dbMod = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
+
+        const app = appMod.initializeApp(FIREBASE_CONFIG);
+        authApi = {
+            auth: authMod.getAuth(app),
+            create: authMod.createUserWithEmailAndPassword,
+            signIn: authMod.signInWithEmailAndPassword,
+            signOut: authMod.signOut,
+            onStateChanged: authMod.onAuthStateChanged
+        };
+        dbApi = {
+            db: dbMod.getFirestore(app),
+            doc: dbMod.doc,
+            getDoc: dbMod.getDoc,
+            setDoc: dbMod.setDoc,
+            collection: dbMod.collection,
+            query: dbMod.query,
+            orderBy: dbMod.orderBy,
+            limit: dbMod.limit,
+            getDocs: dbMod.getDocs,
+            serverTimestamp: dbMod.serverTimestamp
+        };
+
+        firebaseReady = true;
+        setOnlineStatus("Online connected.");
+        updateOnlineAccountText();
+
+        authApi.onStateChanged(authApi.auth, async (user) => {
+            currentUser = user;
+            updateOnlineAccountText();
+            if (user) {
+                await loadUserProfile();
+                await syncProgressToCloud();
+            }
+            await loadLeaderboard();
+            updateStartStats();
+            updateHudStats();
+        });
+    } catch (e) {
+        console.error(e);
+        setOnlineStatus("Failed to initialize online features.", true);
+        updateOnlineAccountText();
+    }
+}
+
+async function loadUserProfile() {
+    if (!firebaseReady || !currentUser) return;
+    const userRef = dbApi.doc(dbApi.db, USER_COLLECTION, currentUser.uid);
+    const snap = await dbApi.getDoc(userRef);
+
+    if (!snap.exists()) {
+        onlineProfile = { campaignBest: 0, survivalBest: 0, maxLevelReached: 1 };
+        return;
+    }
+
+    const data = snap.data();
+    onlineProfile.campaignBest = data.campaignBest || 0;
+    onlineProfile.survivalBest = data.survivalBest || 0;
+    onlineProfile.maxLevelReached = data.maxLevelReached || 1;
+}
+
+async function syncProgressToCloud() {
+    if (!firebaseReady || !currentUser) return;
+
+    const mergedCampaign = mergedCampaignBest();
+    const mergedSurvival = mergedSurvivalBest();
+    const mergedLevel = mergedMaxLevel();
+
+    onlineProfile.campaignBest = mergedCampaign;
+    onlineProfile.survivalBest = mergedSurvival;
+    onlineProfile.maxLevelReached = mergedLevel;
+
+    const userRef = dbApi.doc(dbApi.db, USER_COLLECTION, currentUser.uid);
+    await dbApi.setDoc(userRef, {
+        email: currentUser.email,
+        campaignBest: mergedCampaign,
+        survivalBest: mergedSurvival,
+        maxLevelReached: mergedLevel,
+        combinedBest: Math.max(mergedCampaign, mergedSurvival),
+        updatedAt: dbApi.serverTimestamp(),
+        createdAt: dbApi.serverTimestamp()
+    }, { merge: true });
+}
+
+function renderLeaderboard(entries) {
+    leaderboardListEl.innerHTML = "";
+    if (!entries.length) {
+        const li = document.createElement("li");
+        li.textContent = "No scores yet";
+        leaderboardListEl.appendChild(li);
+        return;
+    }
+
+    for (const entry of entries) {
+        const li = document.createElement("li");
+        const email = entry.email || "unknown";
+        const name = email.split("@")[0];
+        li.textContent = name + " - " + (entry.combinedBest || 0);
+        leaderboardListEl.appendChild(li);
+    }
+}
+
+async function loadLeaderboard() {
+    if (!firebaseReady) {
+        renderLeaderboard([]);
+        return;
+    }
+
+    try {
+        const q = dbApi.query(
+            dbApi.collection(dbApi.db, USER_COLLECTION),
+            dbApi.orderBy("combinedBest", "desc"),
+            dbApi.limit(10)
+        );
+        const snap = await dbApi.getDocs(q);
+        const entries = snap.docs.map((d) => d.data());
+        renderLeaderboard(entries);
+    } catch (e) {
+        console.error(e);
+        setOnlineStatus("Leaderboard failed to load.", true);
+    }
+}
+
+async function registerOnline() {
+    if (!firebaseReady) {
+        setOnlineStatus("Online is not configured yet.", true);
+        return;
+    }
+
+    const email = authEmailEl.value.trim();
+    const password = authPasswordEl.value;
+    if (password.length < 6 || !email) {
+        setOnlineStatus("Enter email and password (min 6 chars).", true);
+        return;
+    }
+
+    try {
+        await authApi.create(authApi.auth, email, password);
+        setOnlineStatus("Account created. Logged in.");
+    } catch (e) {
+        setOnlineStatus(e.message || "Register failed.", true);
+    }
+}
+
+async function loginOnline() {
+    if (!firebaseReady) {
+        setOnlineStatus("Online is not configured yet.", true);
+        return;
+    }
+
+    const email = authEmailEl.value.trim();
+    const password = authPasswordEl.value;
+    if (!email || !password) {
+        setOnlineStatus("Enter email and password.", true);
+        return;
+    }
+
+    try {
+        await authApi.signIn(authApi.auth, email, password);
+        setOnlineStatus("Logged in.");
+    } catch (e) {
+        setOnlineStatus(e.message || "Login failed.", true);
+    }
+}
+
+async function logoutOnline() {
+    if (!firebaseReady) return;
+    try {
+        await authApi.signOut(authApi.auth);
+        setOnlineStatus("Logged out.");
+    } catch (e) {
+        setOnlineStatus(e.message || "Logout failed.", true);
+    }
+}
+
 function currentBestScore() {
-    return selectedMode === "campaign" ? saveData.campaignBest : saveData.survivalBest;
+    return selectedMode === "campaign" ? mergedCampaignBest() : mergedSurvivalBest();
 }
 
 function updateStartStats() {
-    startCampaignBestEl.textContent = saveData.campaignBest;
-    startSurvivalBestEl.textContent = saveData.survivalBest;
-    startMaxLevelEl.textContent = saveData.maxLevelReached;
+    startCampaignBestEl.textContent = mergedCampaignBest();
+    startSurvivalBestEl.textContent = mergedSurvivalBest();
+    startMaxLevelEl.textContent = mergedMaxLevel();
 }
 
 function updateHudStats() {
@@ -1220,6 +1553,16 @@ function endGame(campaignCleared) {
         if (score > saveData.survivalBest) saveData.survivalBest = score;
     }
     persistSave();
+
+    if (firebaseReady && currentUser) {
+        syncProgressToCloud()
+            .then(() => loadLeaderboard())
+            .catch((e) => {
+                console.error(e);
+                setOnlineStatus("Could not sync online score.", true);
+            });
+    }
+
     updateStartStats();
     updateHudStats();
 
@@ -1332,8 +1675,25 @@ document.getElementById("clear-save-btn").addEventListener("click", () => {
     if (confirm("Reset local score and progression data?")) resetSave();
 });
 
+document.getElementById("register-btn").addEventListener("click", () => {
+    registerOnline();
+});
+
+document.getElementById("login-btn").addEventListener("click", () => {
+    loginOnline();
+});
+
+document.getElementById("logout-btn").addEventListener("click", () => {
+    logoutOnline();
+});
+
+document.getElementById("refresh-lb-btn").addEventListener("click", () => {
+    loadLeaderboard();
+});
+
 setMode("campaign");
 setDifficulty("easy");
+initOnlineSystem();
 </script>
 </body>
 </html>

@@ -12,6 +12,8 @@ https://zerobun0.github.io/space-bun/
 
 - No login required
 - Persistent local save using browser storage
+- Optional online account (email/password)
+- Optional online leaderboard and cloud best-score sync
 - Campaign mode with 10 levels
 - Survival mode with endless scaling
 - Easy and Hard difficulty options
@@ -46,6 +48,45 @@ Optional Streamlit wrapper run:
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
+```
+
+## Online Scoring Setup (Firebase)
+
+This project now supports optional online accounts and leaderboard.
+
+Password reset is intentionally not implemented: if a user forgets the password,
+they must create a new account.
+
+1. Create a Firebase project.
+2. Enable Authentication > Email/Password.
+3. Create Firestore database.
+4. Open `index.html` and fill `FIREBASE_CONFIG` with your Firebase web config.
+5. Deploy again to GitHub Pages.
+
+Expected Firestore collection:
+
+- `spacebun_users`
+
+Each document key is the Firebase Auth `uid`, with fields like:
+
+- `email`
+- `campaignBest`
+- `survivalBest`
+- `maxLevelReached`
+- `combinedBest`
+
+Suggested Firestore rules for basic write protection by signed-in user:
+
+```txt
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /spacebun_users/{userId} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
 ```
 
 ## Deploy To GitHub Pages

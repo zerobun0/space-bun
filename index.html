@@ -608,24 +608,50 @@ class Player {
             ctx.globalAlpha = 0.5;
         }
 
-        ctx.beginPath();
-        ctx.moveTo(20, 0);
-        ctx.lineTo(-15, 15);
-        ctx.lineTo(-5, 0);
-        ctx.lineTo(-15, -15);
-        ctx.closePath();
-        ctx.fillStyle = "#001217";
         ctx.strokeStyle = this.color;
+        ctx.fillStyle = "#08131b";
         ctx.lineWidth = 2;
+        ctx.shadowBlur = 14;
+        ctx.shadowColor = this.color;
+
+        // Bunny body
+        ctx.beginPath();
+        ctx.ellipse(-3, 0, 13, 11, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
 
-        ctx.shadowBlur = 14;
+        // Bunny head
+        ctx.beginPath();
+        ctx.arc(11, 0, 9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Bunny ears
+        ctx.beginPath();
+        ctx.ellipse(13, -12, 3.2, 9.5, 0.15, 0, Math.PI * 2);
+        ctx.ellipse(6, -12, 3.2, 9.5, -0.1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Bunny eye and nose
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#d8f8ff";
+        ctx.beginPath();
+        ctx.arc(14, -2, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#ff8ccf";
+        ctx.beginPath();
+        ctx.arc(19, 1, 1.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Thruster trail
+        ctx.strokeStyle = this.color;
+        ctx.shadowBlur = 10;
         ctx.shadowColor = this.color;
         ctx.beginPath();
-        ctx.moveTo(-15, 5);
-        ctx.lineTo(-25, 0);
-        ctx.lineTo(-15, -5);
+        ctx.moveTo(-16, 0);
+        ctx.lineTo(-26, 0);
         ctx.stroke();
 
         ctx.restore();

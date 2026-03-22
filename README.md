@@ -1,14 +1,20 @@
 # Space Bun
 
-Arcade space shooter built with HTML5 Canvas and wrapped in Streamlit for easy hosting.
+Arcade space shooter built with HTML5 Canvas.
+
+## Play Online
+
+GitHub Pages live URL:
+
+https://zerobun0.github.io/space-bun/
 
 ## Features
 
-- No login required.
-- Persistent local save using browser storage.
-- Campaign mode with 10 levels.
-- Survival mode with endless scaling.
-- Easy and Hard difficulty options.
+- No login required
+- Persistent local save using browser storage
+- Campaign mode with 10 levels
+- Survival mode with endless scaling
+- Easy and Hard difficulty options
 - Random drops and perks:
   - Tri-Shot
   - Rapid Fire
@@ -23,36 +29,39 @@ Arcade space shooter built with HTML5 Canvas and wrapped in Streamlit for easy h
 - Aim: Mouse
 - Shoot: Hold Left Click
 
-## Run Locally
+## Local Development
 
-1. Create and activate a Python virtual environment.
-2. Install dependencies:
+Simple static run (recommended):
+
+```bash
+python -m http.server 8000
+```
+
+Then open:
+
+http://localhost:8000
+
+Optional Streamlit wrapper run:
 
 ```bash
 pip install -r requirements.txt
-```
-
-3. Start app:
-
-```bash
 streamlit run app.py
 ```
 
-4. Open http://localhost:8501 (or the URL shown by Streamlit).
+## Deploy To GitHub Pages
 
-## Deploy To Streamlit Community Cloud
+1. Push to `main` branch on `zerobun0/space-bun`.
+2. In GitHub repo settings, open Pages.
+3. Set source to `Deploy from a branch`.
+4. Select branch `main` and folder `/ (root)`.
+5. Save.
 
-1. Push this repo to GitHub.
-2. In Streamlit Community Cloud, create a new app from this repository.
-3. Set main file path to `app.py`.
-4. Deploy.
+After publish, the game is available at:
 
-Suggested repository name: `space-bun`.
-
-After deploy finishes, Streamlit gives you a public URL you can share with friends.
+https://zerobun0.github.io/space-bun/
 
 ## Project Files
 
-- `index.html` - game UI and gameplay logic.
-- `app.py` - Streamlit wrapper that serves the game.
-- `requirements.txt` - Python dependencies.
+- `index.html` - game UI and gameplay logic
+- `app.py` - optional Streamlit wrapper
+- `requirements.txt` - optional Python dependencies for Streamlit run

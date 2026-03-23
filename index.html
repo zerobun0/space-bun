@@ -589,6 +589,8 @@
                 <div class="hud-title">Performance</div>
                 <div class="hud-value" id="fps-value">0</div>
                 <div id="fps-counter">FPS</div>
+                <div class="hud-small">Mem: <span id="mem-value">N/A</span></div>
+                <div class="hud-small" id="mem-hint">Heap</div>
             </div>
         </div>
 
@@ -847,6 +849,8 @@ const livesEl = document.getElementById("lives");
 const perksEl = document.getElementById("perks-active");
 const healthFill = document.getElementById("health-fill");
 const fpsValueEl = document.getElementById("fps-value");
+const memValueEl = document.getElementById("mem-value");
+const memHintEl = document.getElementById("mem-hint");
 
 const startScreen = document.getElementById("start-screen");
 const gameOverScreen = document.getElementById("game-over-screen");
@@ -930,6 +934,24 @@ let fpsAccumulator = 0;
 let fpsFrames = 0;
 let fpsLastMark = performance.now();
 
+function updateMemoryPanel() {
+    const perfMem = performance && performance.memory ? performance.memory : null;
+    if (perfMem && typeof perfMem.usedJSHeapSize === "number") {
+        const usedMb = perfMem.usedJSHeapSize / (1024 * 1024);
+        const limitMb = perfMem.jsHeapSizeLimit / (1024 * 1024);
+        memValueEl.textContent = usedMb.toFixed(0) + " MB";
+        memHintEl.textContent = "Heap / " + limitMb.toFixed(0) + " MB";
+        return;
+    }
+
+    memValueEl.textContent = "N/A";
+    if (typeof navigator !== "undefined" && typeof navigator.deviceMemory === "number") {
+        memHintEl.textContent = "Device ~" + navigator.deviceMemory + " GB";
+    } else {
+        memHintEl.textContent = "Heap unsupported";
+    }
+}
+
 let perkTimers = {
     triShot: 0,
     rapidFire: 0,
@@ -953,6 +975,7 @@ let onlineProfile = {
 const saveData = loadSave();
 updateStartStats();
 updateHudStats();
+updateMemoryPanel();
 
 function loadSave() {
     const fallback = {
@@ -2045,6 +2068,7 @@ class Enemy {
         } else if (this.type === "boss") {
             this.radius = 62;
             this.speed = Math.max(0.8, this.speed * 0.55);
+            this.spinSpeed = 0.015;
             this.maxHealth = 95;
             this.health = this.maxHealth;
             this.points = 2400;
@@ -2065,20 +2089,145 @@ class Enemy {
         ctx.shadowBlur = 9;
         ctx.shadowColor = this.color;
 
-        ctx.beginPath();
-        for (let i = 0; i < 6; i++) {
-            const theta = (i * Math.PI * 2) / 6;
-            const r = i % 2 === 0 ? this.radius : this.radius * 0.72;
-            if (i === 0) ctx.moveTo(Math.cos(theta) * r, Math.sin(theta) * r);
-            else ctx.lineTo(Math.cos(theta) * r, Math.sin(theta) * r);
-        }
-        ctx.closePath();
-        ctx.stroke();
+        if (this.isBoss) {
+            const pulse = 1 + Math.sin(frame * 0.05) * 0.03;
 
-        ctx.beginPath();
-        ctx.arc(0, 0, this.radius * 0.32, 0, Math.PI * 2);
-        ctx.fillStyle = this.color;
-        ctx.fill();
+            const bodyGrad = ctx.createRadialGradient(
+                -this.radius * 0.2,
+                -this.radius * 0.35,
+                this.radius * 0.08,
+                0,
+                0,
+                this.radius * 1.2
+            );
+            bodyGrad.addColorStop(0, "#7b4a66");
+            bodyGrad.addColorStop(0.45, "#3f2436");
+            bodyGrad.addColorStop(1, "#140d15");
+
+            const shadowGrad = ctx.createRadialGradient(0, this.radius * 0.5, 2, 0, this.radius * 0.6, this.radius * 1.25);
+            shadowGrad.addColorStop(0, "rgba(8, 4, 9, 0.1)");
+            shadowGrad.addColorStop(1, "rgba(5, 3, 8, 0.95)");
+
+            // Distorted shell gives a downtrodden silhouette.
+            ctx.save();
+            ctx.scale(1.08 * pulse, 0.93);
+            ctx.beginPath();
+            ctx.moveTo(-this.radius * 0.9, -this.radius * 0.2);
+            ctx.bezierCurveTo(-this.radius * 1.1, -this.radius * 0.95, this.radius * 0.2, -this.radius * 1.05, this.radius * 0.92, -this.radius * 0.3);
+            ctx.bezierCurveTo(this.radius * 1.08, this.radius * 0.4, this.radius * 0.55, this.radius * 1.05, -this.radius * 0.45, this.radius * 0.95);
+            ctx.bezierCurveTo(-this.radius * 1.05, this.radius * 0.7, -this.radius * 1.2, this.radius * 0.15, -this.radius * 0.9, -this.radius * 0.2);
+            ctx.closePath();
+            ctx.fillStyle = bodyGrad;
+            ctx.fill();
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = "rgba(255, 123, 167, 0.65)";
+            ctx.stroke();
+            ctx.restore();
+
+            // Eerie tired aura tendrils.
+            ctx.save();
+            ctx.strokeStyle = "rgba(168, 122, 154, 0.35)";
+            ctx.lineWidth = 1.3;
+            for (let i = 0; i < 7; i++) {
+                const t = frame * 0.02 + i * 0.9;
+                const ox = Math.cos(t) * this.radius * 0.62;
+                const oy = Math.sin(t * 0.8) * this.radius * 0.4;
+                ctx.beginPath();
+                ctx.moveTo(ox * 0.5, oy * 0.4);
+                ctx.quadraticCurveTo(ox * 1.25, oy * 1.1, ox * 1.8, oy * 1.7);
+                ctx.stroke();
+            }
+            ctx.restore();
+
+            // Cracked halo fragments for unsettling vibe.
+            ctx.save();
+            ctx.rotate(Math.sin(frame * 0.01) * 0.08);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = "rgba(210, 175, 205, 0.5)";
+            ctx.beginPath();
+            ctx.arc(0, -this.radius * 0.12, this.radius * 1.1, Math.PI * 0.18, Math.PI * 0.98);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(0, -this.radius * 0.12, this.radius * 1.1, Math.PI * 1.15, Math.PI * 1.78);
+            ctx.stroke();
+            ctx.restore();
+
+            // Face: tired, tragic, unsettling.
+            ctx.save();
+            ctx.shadowBlur = 0;
+            const eyeY = -this.radius * 0.08;
+
+            ctx.strokeStyle = "#ffe2ef";
+            ctx.lineWidth = 2.2;
+            ctx.beginPath();
+            ctx.moveTo(-this.radius * 0.42, eyeY - 2);
+            ctx.quadraticCurveTo(-this.radius * 0.28, eyeY + 8, -this.radius * 0.1, eyeY + 3);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(this.radius * 0.08, eyeY + 3);
+            ctx.quadraticCurveTo(this.radius * 0.26, eyeY + 11, this.radius * 0.42, eyeY + 2);
+            ctx.stroke();
+
+            // Hollow pupils.
+            ctx.fillStyle = "rgba(12, 8, 12, 0.9)";
+            ctx.beginPath();
+            ctx.ellipse(-this.radius * 0.2, eyeY + 7, 5, 3.2, 0.2, 0, Math.PI * 2);
+            ctx.ellipse(this.radius * 0.22, eyeY + 8, 5, 3.2, -0.2, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Tear streaks.
+            ctx.strokeStyle = "rgba(132, 205, 255, 0.45)";
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.moveTo(-this.radius * 0.18, eyeY + 10);
+            ctx.quadraticCurveTo(-this.radius * 0.24, eyeY + 24, -this.radius * 0.16, eyeY + 36);
+            ctx.moveTo(this.radius * 0.24, eyeY + 11);
+            ctx.quadraticCurveTo(this.radius * 0.3, eyeY + 25, this.radius * 0.22, eyeY + 37);
+            ctx.stroke();
+
+            // Defeated mouth and scar details.
+            ctx.strokeStyle = "rgba(255, 184, 202, 0.8)";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(-this.radius * 0.22, this.radius * 0.24);
+            ctx.quadraticCurveTo(0, this.radius * 0.36, this.radius * 0.24, this.radius * 0.22);
+            ctx.stroke();
+
+            ctx.strokeStyle = "rgba(255, 140, 170, 0.5)";
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 4; i++) {
+                const y = -this.radius * 0.55 + i * this.radius * 0.32;
+                ctx.beginPath();
+                ctx.moveTo(-this.radius * 0.58, y);
+                ctx.lineTo(-this.radius * 0.34, y + this.radius * 0.1);
+                ctx.stroke();
+            }
+            ctx.restore();
+
+            // Lower shadow to sell depth.
+            ctx.save();
+            ctx.fillStyle = shadowGrad;
+            ctx.beginPath();
+            ctx.ellipse(0, this.radius * 0.45, this.radius * 0.7, this.radius * 0.36, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        } else {
+            ctx.beginPath();
+            for (let i = 0; i < 6; i++) {
+                const theta = (i * Math.PI * 2) / 6;
+                const r = i % 2 === 0 ? this.radius : this.radius * 0.72;
+                if (i === 0) ctx.moveTo(Math.cos(theta) * r, Math.sin(theta) * r);
+                else ctx.lineTo(Math.cos(theta) * r, Math.sin(theta) * r);
+            }
+            ctx.closePath();
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.arc(0, 0, this.radius * 0.32, 0, Math.PI * 2);
+            ctx.fillStyle = this.color;
+            ctx.fill();
+        }
 
         if (this.type === "exploder" && this.fuse >= 0) {
             const pulse = 0.55 + Math.sin(frame * 0.28) * 0.3;
@@ -2748,6 +2897,7 @@ function animate() {
     if (fpsAccumulator >= 350) {
         const fps = Math.round((fpsFrames * 1000) / fpsAccumulator);
         fpsValueEl.textContent = String(fps);
+        updateMemoryPanel();
         fpsAccumulator = 0;
         fpsFrames = 0;
     }

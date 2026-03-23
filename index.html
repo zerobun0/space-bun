@@ -668,6 +668,7 @@
                 <div class="pill-row">
                     <button class="pill active" id="mode-campaign">Campaign</button>
                     <button class="pill" id="mode-survival">Survival</button>
+                    <button class="pill" id="mode-pvp">PvP Beta</button>
                 </div>
             </div>
             <div class="choice-group">
@@ -764,6 +765,16 @@
                     <button id="login-btn" class="small-btn">Login</button>
                     <button id="logout-btn" class="small-btn">Logout</button>
                 </div>
+                <div class="admin-help" style="margin-top: 8px; color: #9fd8e2;">PvP Beta (1v1 score duel, 90s):</div>
+                <div class="online-grid" style="margin-top: 6px; grid-template-columns: 2fr 1fr;">
+                    <input id="pvp-room-id" class="online-input" type="text" maxlength="48" placeholder="Room ID">
+                    <button id="pvp-join-btn" class="small-btn">Join Room</button>
+                </div>
+                <div class="row" style="justify-content: flex-start; margin-top: 2px;">
+                    <button id="pvp-create-btn" class="small-btn">Create Room</button>
+                    <button id="pvp-leave-btn" class="small-btn">Leave Room</button>
+                </div>
+                <div id="pvp-status" class="online-status">PvP room: none</div>
             </div>
             <div id="online-board-view" class="online-view">
                 <div class="row" style="justify-content: flex-start; margin-bottom: 4px;">
@@ -806,7 +817,7 @@
     <div id="intermission-panel" class="hidden">
         <div class="inter-title">Intermission</div>
         <div class="inter-sub" id="intermission-sub">Calm before the next wave.</div>
-        <div class="inter-timer" id="intermission-timer">Next wave in 35s</div>
+        <div class="inter-timer" id="intermission-timer">Next wave in 11s</div>
         <div class="row" style="justify-content: flex-start;">
             <button id="inter-safe-btn" class="small-btn">Reinforce</button>
             <button id="inter-risk-btn" class="small-btn">Risk Gamble</button>
@@ -827,7 +838,7 @@
 <script>
 const STORAGE_KEY = "space_bun_v1";
 const LEGACY_STORAGE_KEY = "neon_space_defender_v3";
-const BUILD_ID = "v1.0.8";
+const BUILD_ID = "v1.0.9";
 const ACCOUNT_SAVE_PREFIX = STORAGE_KEY + "_account_";
 
 // Base64 helper for config decoding (security obfuscation for public repo)
@@ -859,6 +870,8 @@ const FIREBASE_CONFIG = {
 const ADMIN_EMAIL = "tareku2003@gmail.com";
 
 const USER_COLLECTION = "spacebun_users";
+const PVP_ROOM_COLLECTION = "spacebun_pvp_rooms";
+const PVP_MATCH_DURATION_MS = 90000;
 const MAX_UPGRADE_LEVEL = 5;
 const UPGRADE_BASE_COST = {
     hull: 120,
@@ -969,6 +982,8 @@ const onlineViewAccountBtn = document.getElementById("online-view-account-btn");
 const onlineViewBoardBtn = document.getElementById("online-view-board-btn");
 const onlineAccountViewEl = document.getElementById("online-account-view");
 const onlineBoardViewEl = document.getElementById("online-board-view");
+const pvpRoomIdEl = document.getElementById("pvp-room-id");
+const pvpStatusEl = document.getElementById("pvp-status");
 const adminPanelEl = document.getElementById("admin-panel");
 const adminSelectedTextEl = document.getElementById("admin-selected-text");
 const adminTargetEmailEl = document.getElementById("admin-target-email");
@@ -1009,6 +1024,11 @@ let currentWave = 1;
 let lives = 3;
 let survivalIntensity = 0;
 const MAX_LIVES = 4;
+
+let pvpRoomId = "";
+let pvpRoomRole = "";
+let pvpRoomUnsub = null;
+let pvpRoomData = null;
 
 let player;
 let projectiles = [];
@@ -1288,11 +1308,16 @@ function setOnlineStatus(text, isError = false) {
 
 function setOnlineControlsEnabled(enabled) {
     authEmailEl.disabled = !enabled;
+    authUsernameEl.disabled = !enabled;
     authPasswordEl.disabled = !enabled;
     document.getElementById("register-btn").disabled = !enabled;
     document.getElementById("login-btn").disabled = !enabled;
     document.getElementById("logout-btn").disabled = !enabled;
     document.getElementById("refresh-lb-btn").disabled = !enabled;
+    document.getElementById("pvp-create-btn").disabled = !enabled;
+    document.getElementById("pvp-join-btn").disabled = !enabled;
+    document.getElementById("pvp-leave-btn").disabled = !enabled;
+    pvpRoomIdEl.disabled = !enabled;
     document.getElementById("admin-rename-btn").disabled = !enabled;
     document.getElementById("admin-delete-btn").disabled = !enabled;
     adminTargetEmailEl.disabled = !enabled;
@@ -1305,6 +1330,202 @@ function setOnlinePanelView(view) {
     onlineBoardViewEl.classList.toggle("active", !accountActive);
     onlineViewAccountBtn.classList.toggle("active", accountActive);
     onlineViewBoardBtn.classList.toggle("active", !accountActive);
+}
+
+function setPvpStatus(text, isError = false) {
+    pvpStatusEl.textContent = text;
+    pvpStatusEl.classList.toggle("error", isError);
+}
+
+function clearPvpSubscription() {
+    if (typeof pvpRoomUnsub === "function") {
+        pvpRoomUnsub();
+    }
+    pvpRoomUnsub = null;
+}
+
+function applyPvpRoomSnapshot(data) {
+    pvpRoomData = data || null;
+    if (!pvpRoomData || !pvpRoomId) {
+        setPvpStatus("PvP room: none");
+        return;
+    }
+
+    const guestJoined = !!pvpRoomData.guestUid;
+    const status = String(pvpRoomData.status || "waiting");
+    const opponentName = pvpRoomRole === "host"
+        ? sanitizeDisplayName(pvpRoomData.guestName || "")
+        : sanitizeDisplayName(pvpRoomData.hostName || "");
+    const hostScore = Number(pvpRoomData.hostScore || 0);
+    const guestScore = Number(pvpRoomData.guestScore || 0);
+
+    if (status === "complete") {
+        const draw = pvpRoomData.winnerUid === "draw";
+        const won = !!currentUser && pvpRoomData.winnerUid === currentUser.uid;
+        const result = draw ? "Draw" : won ? "You won" : "You lost";
+        setPvpStatus("Room " + pvpRoomId + " | Complete | " + result + " | " + hostScore + " - " + guestScore);
+        return;
+    }
+
+    if (!guestJoined) {
+        setPvpStatus("Room " + pvpRoomId + " | Waiting for opponent...");
+        return;
+    }
+
+    const who = opponentName ? " vs " + opponentName : "";
+    setPvpStatus("Room " + pvpRoomId + " | Live" + who + " | " + hostScore + " - " + guestScore);
+}
+
+function watchPvpRoom(roomId) {
+    if (!firebaseReady || !dbApi || !roomId) return;
+    clearPvpSubscription();
+    const roomRef = dbApi.doc(dbApi.db, PVP_ROOM_COLLECTION, roomId);
+    pvpRoomUnsub = dbApi.onSnapshot(roomRef, (snap) => {
+        if (!snap.exists()) {
+            pvpRoomId = "";
+            pvpRoomRole = "";
+            pvpRoomData = null;
+            pvpRoomIdEl.value = "";
+            clearPvpSubscription();
+            setPvpStatus("PvP room closed.", true);
+            return;
+        }
+        applyPvpRoomSnapshot({ id: snap.id, ...snap.data() });
+    }, () => {
+        setPvpStatus("PvP room watcher lost. Rejoin room.", true);
+    });
+}
+
+async function leavePvpRoom(silent = false) {
+    clearPvpSubscription();
+    pvpRoomId = "";
+    pvpRoomRole = "";
+    pvpRoomData = null;
+    pvpRoomIdEl.value = "";
+    if (!silent) setPvpStatus("PvP room: none");
+}
+
+async function createPvpRoom() {
+    if (!firebaseReady || !currentUser) {
+        setPvpStatus("Login required for PvP rooms.", true);
+        return;
+    }
+    const roomId = Math.random().toString(36).slice(2, 8).toUpperCase();
+    const hostName = sanitizeDisplayName(saveData.displayName || currentUser.email.split("@")[0]);
+    const roomRef = dbApi.doc(dbApi.db, PVP_ROOM_COLLECTION, roomId);
+    await dbApi.setDoc(roomRef, {
+        status: "waiting",
+        hostUid: currentUser.uid,
+        hostEmail: currentUser.email,
+        hostName,
+        guestUid: null,
+        guestEmail: "",
+        guestName: "",
+        hostScore: 0,
+        guestScore: 0,
+        hostDone: false,
+        guestDone: false,
+        winnerUid: "",
+        targetDurationMs: PVP_MATCH_DURATION_MS,
+        updatedAt: dbApi.serverTimestamp(),
+        createdAt: dbApi.serverTimestamp()
+    }, { merge: true });
+    pvpRoomId = roomId;
+    pvpRoomRole = "host";
+    pvpRoomIdEl.value = roomId;
+    watchPvpRoom(roomId);
+    setPvpStatus("Room " + roomId + " created. Waiting for opponent...");
+}
+
+async function joinPvpRoom() {
+    if (!firebaseReady || !currentUser) {
+        setPvpStatus("Login required for PvP rooms.", true);
+        return;
+    }
+    const roomId = String(pvpRoomIdEl.value || "").trim().toUpperCase();
+    if (!roomId) {
+        setPvpStatus("Enter a room ID first.", true);
+        return;
+    }
+    const roomRef = dbApi.doc(dbApi.db, PVP_ROOM_COLLECTION, roomId);
+    const snap = await dbApi.getDoc(roomRef);
+    if (!snap.exists()) {
+        setPvpStatus("Room not found.", true);
+        return;
+    }
+    const data = snap.data();
+    if (data.hostUid && data.hostUid === currentUser.uid) {
+        pvpRoomId = roomId;
+        pvpRoomRole = "host";
+        watchPvpRoom(roomId);
+        setPvpStatus("Rejoined your room " + roomId + ".");
+        return;
+    }
+    if (data.guestUid && data.guestUid !== currentUser.uid) {
+        setPvpStatus("Room already full.", true);
+        return;
+    }
+
+    const guestName = sanitizeDisplayName(saveData.displayName || currentUser.email.split("@")[0]);
+    await dbApi.setDoc(roomRef, {
+        status: "live",
+        guestUid: currentUser.uid,
+        guestEmail: currentUser.email,
+        guestName,
+        updatedAt: dbApi.serverTimestamp()
+    }, { merge: true });
+    pvpRoomId = roomId;
+    pvpRoomRole = "guest";
+    watchPvpRoom(roomId);
+    setPvpStatus("Joined room " + roomId + ". Select PvP Beta and press Start.");
+}
+
+function canStartPvpRun() {
+    if (!firebaseReady || !currentUser) {
+        setPvpStatus("Login required for PvP.", true);
+        return false;
+    }
+    if (!pvpRoomId || !pvpRoomData) {
+        setPvpStatus("Create or join a PvP room first.", true);
+        return false;
+    }
+    if (!pvpRoomData.guestUid) {
+        setPvpStatus("Waiting for opponent to join room.", true);
+        return false;
+    }
+    return true;
+}
+
+async function submitPvpScore() {
+    if (!firebaseReady || !currentUser || !pvpRoomId || !pvpRoomRole) return;
+    const roomRef = dbApi.doc(dbApi.db, PVP_ROOM_COLLECTION, pvpRoomId);
+    const snap = await dbApi.getDoc(roomRef);
+    if (!snap.exists()) return;
+    const data = snap.data();
+    const next = { ...data };
+    if (pvpRoomRole === "host") {
+        next.hostScore = Number(score || 0);
+        next.hostDone = true;
+    } else {
+        next.guestScore = Number(score || 0);
+        next.guestDone = true;
+    }
+
+    const payload = {
+        hostScore: Number(next.hostScore || 0),
+        guestScore: Number(next.guestScore || 0),
+        hostDone: !!next.hostDone,
+        guestDone: !!next.guestDone,
+        updatedAt: dbApi.serverTimestamp()
+    };
+
+    if (payload.hostDone && payload.guestDone) {
+        payload.status = "complete";
+        if (payload.hostScore === payload.guestScore) payload.winnerUid = "draw";
+        else payload.winnerUid = payload.hostScore > payload.guestScore ? data.hostUid : data.guestUid;
+    }
+
+    await dbApi.setDoc(roomRef, payload, { merge: true });
 }
 
 function normalizeEmail(email) {
@@ -1453,14 +1674,14 @@ function isSurgeWave() {
 
 function beginIntermission(nextWave) {
     intermissionActive = true;
-    intermissionUntil = Date.now() + 35000;
+    intermissionUntil = Date.now() + 11000;
     intermissionChoiceLocked = false;
     intermissionPanelEl.classList.remove("hidden");
     intermissionSafeBtn.disabled = false;
     intermissionRiskBtn.disabled = false;
     const nextCfg = campaignConfigByWave(nextWave);
     intermissionSubEl.textContent = "Act " + nextCfg.act + " Wave " + nextCfg.waveInAct + " incoming. Pick a moment choice.";
-    intermissionTimerEl.textContent = "Next wave in 35s";
+    intermissionTimerEl.textContent = "Next wave in 11s";
 }
 
 function endIntermission() {
@@ -1581,6 +1802,7 @@ async function initOnlineSystem() {
             doc: dbMod.doc,
             getDoc: dbMod.getDoc,
             setDoc: dbMod.setDoc,
+            onSnapshot: dbMod.onSnapshot,
             collection: dbMod.collection,
             query: dbMod.query,
             orderBy: dbMod.orderBy,
@@ -1605,6 +1827,7 @@ async function initOnlineSystem() {
                 authUsernameEl.value = saveData.displayName || "";
                 pendingRegistrationDisplayName = "";
             } else {
+                await leavePvpRoom(true);
                 pendingRegistrationDisplayName = "";
                 authUsernameEl.value = "";
             }
@@ -1890,6 +2113,7 @@ async function logoutOnline() {
         return;
     }
     try {
+        await leavePvpRoom(true);
         await authApi.signOut(authApi.auth);
         setOnlineStatus("Logged out.");
     } catch (e) {
@@ -1922,6 +2146,9 @@ function updateHudStats() {
         hudRunInfoEl.textContent = intermissionActive
             ? "Intermission A" + currentLevel + "W" + w
             : "Campaign A" + currentLevel + "W" + w;
+    } else if (selectedMode === "pvp") {
+        const remain = Math.max(0, Math.ceil((PVP_MATCH_DURATION_MS - (Date.now() - runStartTime)) / 1000));
+        hudRunInfoEl.textContent = "PvP " + remain + "s";
     } else {
         const seconds = Math.floor((Date.now() - runStartTime) / 1000);
         hudRunInfoEl.textContent = "Survival " + seconds + "s";
@@ -2721,7 +2948,7 @@ function spawnBullet(angle, speed, x, y) {
     const sx = x + Math.cos(angle) * 20;
     const sy = y + Math.sin(angle) * 20;
     const vel = { x: Math.cos(angle) * speed * weaponBoost, y: Math.sin(angle) * speed * weaponBoost };
-    const timeBonus = selectedMode === "survival"
+    const timeBonus = selectedMode !== "campaign"
         ? Math.min(0.65, Math.floor((Date.now() - runStartTime) / 22000) * 0.08)
         : Math.min(0.45, (currentLevel - 1) * 0.04);
     const debuffMult = Date.now() < damageDebuffUntil ? 0.72 : 1;
@@ -2918,7 +3145,7 @@ function calculateRunTechPoints(campaignCleared) {
     const scorePoints = Math.floor(score / 45);
     const killPoints = Math.floor(runKills * 1.8);
     const dropPoints = Math.floor(runDropsCollected * 2.2);
-    const modeBonus = selectedMode === "campaign" ? currentLevel * 5 : Math.floor(survivalIntensity * 6);
+    const modeBonus = selectedMode === "campaign" ? currentLevel * 5 : Math.floor(survivalIntensity * 6) + (selectedMode === "pvp" ? 18 : 0);
     const clearBonus = campaignCleared ? 120 : 0;
     return Math.max(25, scorePoints + killPoints + dropPoints + modeBonus + clearBonus);
 }
@@ -3217,6 +3444,10 @@ function animate() {
     checkCollisions();
     checkCampaignProgress();
 
+    if (selectedMode === "pvp" && Date.now() - runStartTime >= PVP_MATCH_DURATION_MS) {
+        endGame(false);
+    }
+
     if (Date.now() > levelBannerUntil) levelBanner.classList.add("hidden");
 
     ctx.restore();
@@ -3242,7 +3473,7 @@ function endGame(campaignCleared) {
     if (selectedMode === "campaign") {
         if (score > saveData.campaignBest) saveData.campaignBest = score;
         if (currentLevel > saveData.maxLevelReached) saveData.maxLevelReached = currentLevel;
-    } else {
+    } else if (selectedMode === "survival") {
         if (score > saveData.survivalBest) saveData.survivalBest = score;
     }
 
@@ -3256,6 +3487,13 @@ function endGame(campaignCleared) {
         saveData.talentTokens += 1;
     }
     persistSave();
+
+    if (selectedMode === "pvp" && firebaseReady && currentUser) {
+        submitPvpScore().catch((e) => {
+            console.error(e);
+            setPvpStatus("Failed to submit PvP score.", true);
+        });
+    }
 
     if (firebaseReady && currentUser) {
         syncProgressToCloud()
@@ -3279,6 +3517,9 @@ function endGame(campaignCleared) {
         const seconds = Math.floor((Date.now() - runStartTime) / 1000);
         gameOverTitleEl.textContent = "Run Over";
         finalExtraLineEl.textContent = "You survived " + seconds + " seconds. +" + earnedPoints + " tech points | +" + runCoins + " coins.";
+    } else if (selectedMode === "pvp") {
+        gameOverTitleEl.textContent = "PvP Match Ended";
+        finalExtraLineEl.textContent = "Score submitted to room. +" + earnedPoints + " tech points | +" + runCoins + " coins.";
     } else {
         gameOverTitleEl.textContent = "Mission Failed";
         finalExtraLineEl.textContent = "Reached Act " + currentLevel + " Wave " + waveInsideAct(currentWave) + ". +" + earnedPoints + " tech points | +" + runCoins + " coins.";
@@ -3291,6 +3532,7 @@ function setMode(mode) {
     selectedMode = mode;
     document.getElementById("mode-campaign").classList.toggle("active", mode === "campaign");
     document.getElementById("mode-survival").classList.toggle("active", mode === "survival");
+    document.getElementById("mode-pvp").classList.toggle("active", mode === "pvp");
     updateHudStats();
 }
 
@@ -3346,10 +3588,13 @@ window.addEventListener("blur", () => {
 
 document.getElementById("mode-campaign").addEventListener("click", () => setMode("campaign"));
 document.getElementById("mode-survival").addEventListener("click", () => setMode("survival"));
+document.getElementById("mode-pvp").addEventListener("click", () => setMode("pvp"));
 document.getElementById("difficulty-easy").addEventListener("click", () => setDifficulty("easy"));
 document.getElementById("difficulty-hard").addEventListener("click", () => setDifficulty("hard"));
 
 document.getElementById("start-btn").addEventListener("click", () => {
+    if (selectedMode === "pvp" && !canStartPvpRun()) return;
+
     keys.w = false;
     keys.a = false;
     keys.s = false;
@@ -3397,6 +3642,27 @@ document.getElementById("login-btn").addEventListener("click", () => {
 
 document.getElementById("logout-btn").addEventListener("click", () => {
     logoutOnline();
+});
+
+document.getElementById("pvp-create-btn").addEventListener("click", () => {
+    createPvpRoom().catch((e) => {
+        console.error(e);
+        setPvpStatus("Failed to create room.", true);
+    });
+});
+
+document.getElementById("pvp-join-btn").addEventListener("click", () => {
+    joinPvpRoom().catch((e) => {
+        console.error(e);
+        setPvpStatus("Failed to join room.", true);
+    });
+});
+
+document.getElementById("pvp-leave-btn").addEventListener("click", () => {
+    leavePvpRoom().catch((e) => {
+        console.error(e);
+        setPvpStatus("Failed to leave room.", true);
+    });
 });
 
 document.getElementById("refresh-lb-btn").addEventListener("click", () => {

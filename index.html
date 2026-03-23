@@ -1089,8 +1089,12 @@ function setAdminSelectedTarget(entry) {
     const email = entry && entry.email ? String(entry.email) : "";
     const currentName = entry ? sanitizeDisplayName(entry.displayName || email.split("@")[0] || "") : "";
     adminTargetEmailEl.value = email;
-    adminNewNameEl.value = currentName;
+    if (!adminNewNameEl.value || !adminSelectedUid) {
+        adminNewNameEl.value = currentName;
+    }
     if (!adminSelectedUid) {
+        adminTargetEmailEl.value = "";
+        adminNewNameEl.value = "";
         adminSelectedTextEl.textContent = "Select a pilot from leaderboard.";
         return;
     }
@@ -1337,9 +1341,6 @@ function renderLeaderboard(entries) {
         leaderboardListEl.appendChild(li);
     }
 
-    if (currentUserIsAdmin() && !adminSelectedUid) {
-        setAdminSelectedTarget(entries[0]);
-    }
 }
 
 async function loadLeaderboard() {
@@ -1455,11 +1456,22 @@ async function adminDeleteUser() {
             return;
         }
 
+        if (currentUser && target.uid === currentUser.uid) {
+            setOnlineStatus("You cannot delete your own admin account.", true);
+            return;
+        }
+
         const resolvedEmail = normalizeEmail(target.data.email || targetEmail);
         if (resolvedEmail === normalizeEmail(ADMIN_EMAIL)) {
             setOnlineStatus("Admin account deletion blocked.", true);
             return;
         }
+
+        const targetLabel = target.data.displayName || target.data.email || "this user";
+        if (!confirm("Delete " + targetLabel + " from leaderboard data? This cannot be undone.")) {
+            return;
+        }
+
         await dbApi.deleteDoc(dbApi.doc(dbApi.db, USER_COLLECTION, target.uid));
         setAdminSelectedTarget(null);
         setOnlineStatus("User removed from leaderboard.");

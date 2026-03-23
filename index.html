@@ -308,6 +308,33 @@
             overflow: auto;
         }
 
+        .admin-panel {
+            margin-top: 10px;
+            border-top: 1px dashed rgba(255, 112, 143, 0.35);
+            padding-top: 10px;
+        }
+
+        .admin-title {
+            font-size: 11px;
+            color: #ff9db8;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 6px;
+        }
+
+        .admin-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .admin-help {
+            color: #b8cdd6;
+            font-size: 11px;
+            margin-top: 6px;
+        }
+
         .small-note {
             margin-top: 10px;
             color: #8eb0ba;
@@ -445,6 +472,10 @@
                 grid-template-columns: 1fr;
             }
 
+            .admin-grid {
+                grid-template-columns: 1fr;
+            }
+
             .tiny-btn {
                 min-width: 120px;
             }
@@ -572,6 +603,18 @@
                 <div class="leaderboard-title">Top Pilots</div>
                 <ol id="leaderboard-list"></ol>
             </div>
+            <div id="admin-panel" class="admin-panel hidden">
+                <div class="admin-title">Admin Controls</div>
+                <div class="admin-grid">
+                    <input id="admin-target-email" class="online-input" type="email" placeholder="Target email">
+                    <input id="admin-new-name" class="online-input" type="text" maxlength="20" placeholder="New display name">
+                </div>
+                <div class="row" style="justify-content: flex-start;">
+                    <button id="admin-rename-btn" class="small-btn">Set Name</button>
+                    <button id="admin-delete-btn" class="small-btn">Delete User</button>
+                </div>
+                <div class="admin-help">Admin only. Changes sync to Firestore.</div>
+            </div>
         </div>
 
         <button id="start-btn">Start Run</button>
@@ -607,7 +650,7 @@
 <script>
 const STORAGE_KEY = "space_bun_v1";
 const LEGACY_STORAGE_KEY = "neon_space_defender_v3";
-const BUILD_ID = "v1.0.4";
+const BUILD_ID = "v1.0.5";
 
 // Base64 helper for config decoding (security obfuscation for public repo)
 function decodeBase64(str) {
@@ -634,6 +677,8 @@ const FIREBASE_CONFIG = {
     projectId: decodeBase64(FIREBASE_CONFIG_ENCODED.projectId),
     appId: decodeBase64(FIREBASE_CONFIG_ENCODED.appId)
 };
+
+const ADMIN_EMAIL = "tareku2003@gmail.com";
 
 const USER_COLLECTION = "spacebun_users";
 const MAX_UPGRADE_LEVEL = 5;
@@ -714,6 +759,9 @@ const onlineStatusEl = document.getElementById("online-status");
 const authEmailEl = document.getElementById("auth-email");
 const authPasswordEl = document.getElementById("auth-password");
 const leaderboardListEl = document.getElementById("leaderboard-list");
+const adminPanelEl = document.getElementById("admin-panel");
+const adminTargetEmailEl = document.getElementById("admin-target-email");
+const adminNewNameEl = document.getElementById("admin-new-name");
 const hangarPointsEl = document.getElementById("hangar-points");
 const hangarSummaryEl = document.getElementById("hangar-summary");
 
@@ -780,6 +828,7 @@ let firebaseReady = false;
 let authApi;
 let dbApi;
 let currentUser = null;
+let leaderboardEntries = [];
 let onlineProfile = {
     campaignBest: 0,
     survivalBest: 0,
@@ -869,6 +918,28 @@ function setOnlineControlsEnabled(enabled) {
     document.getElementById("login-btn").disabled = !enabled;
     document.getElementById("logout-btn").disabled = !enabled;
     document.getElementById("refresh-lb-btn").disabled = !enabled;
+    document.getElementById("admin-rename-btn").disabled = !enabled;
+    document.getElementById("admin-delete-btn").disabled = !enabled;
+    adminTargetEmailEl.disabled = !enabled;
+    adminNewNameEl.disabled = !enabled;
+}
+
+function normalizeEmail(email) {
+    return String(email || "").trim().toLowerCase();
+}
+
+function currentUserIsAdmin() {
+    return !!currentUser && normalizeEmail(currentUser.email) === normalizeEmail(ADMIN_EMAIL);
+}
+
+function updateAdminPanelVisibility() {
+    const show = firebaseReady && currentUserIsAdmin();
+    adminPanelEl.classList.toggle("hidden", !show);
+}
+
+function sanitizeDisplayName(input) {
+    const cleaned = String(input || "").replace(/\s+/g, " ").trim();
+    return cleaned.slice(0, 20);
 }
 
 function getUpgradeLevel(key) {
@@ -962,13 +1033,17 @@ function effectiveCombinedBest() {
 function updateOnlineAccountText() {
     if (!firebaseReady) {
         onlineAccountTextEl.textContent = "Offline mode (online unavailable).";
+        updateAdminPanelVisibility();
         return;
     }
     if (!currentUser) {
         onlineAccountTextEl.textContent = "Not logged in.";
+        updateAdminPanelVisibility();
         return;
     }
-    onlineAccountTextEl.textContent = "Logged in as " + currentUser.email;
+    const suffix = currentUserIsAdmin() ? " (Admin)" : "";
+    onlineAccountTextEl.textContent = "Logged in as " + currentUser.email + suffix;
+    updateAdminPanelVisibility();
 }
 
 async function initOnlineSystem() {
@@ -1002,7 +1077,9 @@ async function initOnlineSystem() {
             query: dbMod.query,
             orderBy: dbMod.orderBy,
             limit: dbMod.limit,
+            where: dbMod.where,
             getDocs: dbMod.getDocs,
+            deleteDoc: dbMod.deleteDoc,
             serverTimestamp: dbMod.serverTimestamp
         };
 
@@ -1070,6 +1147,7 @@ async function syncProgressToCloud() {
 }
 
 function renderLeaderboard(entries) {
+    leaderboardEntries = entries;
     leaderboardListEl.innerHTML = "";
     if (!entries.length) {
         const li = document.createElement("li");
@@ -1081,8 +1159,10 @@ function renderLeaderboard(entries) {
     for (const entry of entries) {
         const li = document.createElement("li");
         const email = entry.email || "unknown";
-        const name = email.split("@")[0];
-        li.textContent = name + " - " + (entry.combinedBest || 0);
+        const rawName = entry.displayName || email.split("@")[0];
+        const name = sanitizeDisplayName(rawName) || "unknown";
+        const badge = normalizeEmail(email) === normalizeEmail(ADMIN_EMAIL) ? " [ADMIN]" : "";
+        li.textContent = name + badge + " - " + (entry.combinedBest || 0);
         leaderboardListEl.appendChild(li);
     }
 }
@@ -1100,11 +1180,106 @@ async function loadLeaderboard() {
             dbApi.limit(10)
         );
         const snap = await dbApi.getDocs(q);
-        const entries = snap.docs.map((d) => d.data());
+        const entries = snap.docs.map((d) => ({ uid: d.id, ...d.data() }));
         renderLeaderboard(entries);
     } catch (e) {
         console.error(e);
         setOnlineStatus("Leaderboard failed to load.", true);
+    }
+}
+
+async function findUserDocByEmail(email) {
+    const normalized = normalizeEmail(email);
+    if (!normalized) return null;
+
+    const exactInBoard = leaderboardEntries.find((e) => normalizeEmail(e.email) === normalized);
+    if (exactInBoard && exactInBoard.uid) {
+        return { uid: exactInBoard.uid, data: exactInBoard };
+    }
+
+    const q = dbApi.query(
+        dbApi.collection(dbApi.db, USER_COLLECTION),
+        dbApi.where("email", "==", normalized),
+        dbApi.limit(1)
+    );
+    const snap = await dbApi.getDocs(q);
+    if (!snap.empty) {
+        const doc = snap.docs[0];
+        return { uid: doc.id, data: doc.data() };
+    }
+
+    const original = String(email || "").trim();
+    const q2 = dbApi.query(
+        dbApi.collection(dbApi.db, USER_COLLECTION),
+        dbApi.where("email", "==", original),
+        dbApi.limit(1)
+    );
+    const snap2 = await dbApi.getDocs(q2);
+    if (snap2.empty) return null;
+    const doc2 = snap2.docs[0];
+    return { uid: doc2.id, data: doc2.data() };
+}
+
+async function adminRenameUser() {
+    if (!firebaseReady || !currentUserIsAdmin()) {
+        setOnlineStatus("Admin permissions required.", true);
+        return;
+    }
+
+    const targetEmail = normalizeEmail(adminTargetEmailEl.value);
+    const newName = sanitizeDisplayName(adminNewNameEl.value);
+    if (!targetEmail || !newName) {
+        setOnlineStatus("Enter target email and new name.", true);
+        return;
+    }
+
+    try {
+        const target = await findUserDocByEmail(targetEmail);
+        if (!target) {
+            setOnlineStatus("User not found.", true);
+            return;
+        }
+        await dbApi.setDoc(dbApi.doc(dbApi.db, USER_COLLECTION, target.uid), {
+            displayName: newName,
+            updatedAt: dbApi.serverTimestamp()
+        }, { merge: true });
+        setOnlineStatus("Display name updated.");
+        await loadLeaderboard();
+    } catch (e) {
+        console.error(e);
+        setOnlineStatus("Rename failed. Check Firestore admin rules.", true);
+    }
+}
+
+async function adminDeleteUser() {
+    if (!firebaseReady || !currentUserIsAdmin()) {
+        setOnlineStatus("Admin permissions required.", true);
+        return;
+    }
+
+    const targetEmail = normalizeEmail(adminTargetEmailEl.value);
+    if (!targetEmail) {
+        setOnlineStatus("Enter target email first.", true);
+        return;
+    }
+
+    if (targetEmail === normalizeEmail(ADMIN_EMAIL)) {
+        setOnlineStatus("Admin account deletion blocked.", true);
+        return;
+    }
+
+    try {
+        const target = await findUserDocByEmail(targetEmail);
+        if (!target) {
+            setOnlineStatus("User not found.", true);
+            return;
+        }
+        await dbApi.deleteDoc(dbApi.doc(dbApi.db, USER_COLLECTION, target.uid));
+        setOnlineStatus("User removed from leaderboard.");
+        await loadLeaderboard();
+    } catch (e) {
+        console.error(e);
+        setOnlineStatus("Delete failed. Check Firestore admin rules.", true);
     }
 }
 
@@ -2440,6 +2615,14 @@ document.getElementById("logout-btn").addEventListener("click", () => {
 
 document.getElementById("refresh-lb-btn").addEventListener("click", () => {
     loadLeaderboard();
+});
+
+document.getElementById("admin-rename-btn").addEventListener("click", () => {
+    adminRenameUser();
+});
+
+document.getElementById("admin-delete-btn").addEventListener("click", () => {
+    adminDeleteUser();
 });
 
 setMode("campaign");

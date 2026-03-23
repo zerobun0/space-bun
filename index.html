@@ -321,6 +321,71 @@
             line-height: 1.4;
         }
 
+        .hangar-panel {
+            width: min(760px, calc(100% - 28px));
+            margin: 0 auto 14px;
+            text-align: left;
+        }
+
+        .hangar-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+            color: #cff7ff;
+            font-size: 13px;
+        }
+
+        .upgrade-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(220px, 1fr));
+            gap: 8px;
+        }
+
+        .upgrade-row {
+            border: 1px solid rgba(0, 240, 255, 0.24);
+            border-radius: 9px;
+            padding: 8px;
+            background: rgba(2, 15, 23, 0.6);
+        }
+
+        .upgrade-name {
+            color: #9fe9ff;
+            font-size: 12px;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.7px;
+        }
+
+        .upgrade-meta {
+            color: #b8dbe5;
+            font-size: 12px;
+            margin-bottom: 6px;
+        }
+
+        .tiny-btn {
+            min-width: 130px;
+            padding: 7px 10px;
+            margin: 0;
+            font-size: 11px;
+            letter-spacing: 1px;
+        }
+
+        .ship-style-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+
+        .pill.locked {
+            opacity: 0.45;
+            border-color: rgba(120, 130, 138, 0.5);
+            color: #8ea1aa;
+            cursor: not-allowed;
+        }
+
         #perks-active {
             color: #ffd76f;
             font-size: 13px;
@@ -378,6 +443,14 @@
             button {
                 min-width: 190px;
                 font-size: 16px;
+            }
+
+            .upgrade-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .tiny-btn {
+                min-width: 120px;
             }
         }
     </style>
@@ -450,6 +523,41 @@
             Highest Level Reached: <span id="start-max-level">1</span>/10
         </div>
 
+        <div class="choice-group hangar-panel">
+            <div class="choice-title">Hangar Upgrades</div>
+            <div class="hangar-head">
+                <div>Tech Points: <span id="hangar-points">0</span></div>
+                <div id="hangar-summary">Chassis: Bunny</div>
+            </div>
+            <div class="ship-style-row">
+                <button class="pill active" id="ship-style-bunny">Bunny Chassis</button>
+                <button class="pill locked" id="ship-style-capsule">Capsule Chassis</button>
+                <button class="pill locked" id="ship-style-spear">Spear Chassis</button>
+            </div>
+            <div class="upgrade-grid">
+                <div class="upgrade-row">
+                    <div class="upgrade-name">Hull Plating</div>
+                    <div class="upgrade-meta" id="upg-hull-meta">Lv 0/5</div>
+                    <button class="tiny-btn" id="upg-hull-btn">Upgrade</button>
+                </div>
+                <div class="upgrade-row">
+                    <div class="upgrade-name">Thrusters</div>
+                    <div class="upgrade-meta" id="upg-thruster-meta">Lv 0/5</div>
+                    <button class="tiny-btn" id="upg-thruster-btn">Upgrade</button>
+                </div>
+                <div class="upgrade-row">
+                    <div class="upgrade-name">Weapon Core</div>
+                    <div class="upgrade-meta" id="upg-weapon-meta">Lv 0/5</div>
+                    <button class="tiny-btn" id="upg-weapon-btn">Upgrade</button>
+                </div>
+                <div class="upgrade-row">
+                    <div class="upgrade-name">Plasma Forge</div>
+                    <div class="upgrade-meta" id="upg-plasma-meta">Lv 0/5</div>
+                    <button class="tiny-btn" id="upg-plasma-btn">Upgrade</button>
+                </div>
+            </div>
+        </div>
+
         <div class="choice-group online-panel">
             <div class="choice-title">Online Account</div>
             <div id="online-account-text" class="hud-small"></div>
@@ -503,7 +611,7 @@
 <script>
 const STORAGE_KEY = "space_bun_v1";
 const LEGACY_STORAGE_KEY = "neon_space_defender_v3";
-const BUILD_ID = "v1.0.3";
+const BUILD_ID = "v1.0.4";
 
 // Base64 helper for config decoding (security obfuscation for public repo)
 function decodeBase64(str) {
@@ -532,6 +640,19 @@ const FIREBASE_CONFIG = {
 };
 
 const USER_COLLECTION = "spacebun_users";
+const MAX_UPGRADE_LEVEL = 5;
+const UPGRADE_BASE_COST = {
+    hull: 120,
+    thruster: 105,
+    weapon: 145,
+    plasma: 165
+};
+
+const SHIP_STYLES = {
+    bunny: { label: "Bunny", unlockWeaponLevel: 0 },
+    capsule: { label: "Capsule", unlockWeaponLevel: 2 },
+    spear: { label: "Spear", unlockWeaponLevel: 4 }
+};
 
 const campaignLevels = [
     { target: 350, spawnFrames: 88, speedMult: 0.92 },
@@ -597,6 +718,21 @@ const onlineStatusEl = document.getElementById("online-status");
 const authEmailEl = document.getElementById("auth-email");
 const authPasswordEl = document.getElementById("auth-password");
 const leaderboardListEl = document.getElementById("leaderboard-list");
+const hangarPointsEl = document.getElementById("hangar-points");
+const hangarSummaryEl = document.getElementById("hangar-summary");
+
+const upgradeMetaEls = {
+    hull: document.getElementById("upg-hull-meta"),
+    thruster: document.getElementById("upg-thruster-meta"),
+    weapon: document.getElementById("upg-weapon-meta"),
+    plasma: document.getElementById("upg-plasma-meta")
+};
+
+const shipStyleButtons = {
+    bunny: document.getElementById("ship-style-bunny"),
+    capsule: document.getElementById("ship-style-capsule"),
+    spear: document.getElementById("ship-style-spear")
+};
 
 const keys = { w: false, a: false, s: false, d: false };
 const mouse = { x: 0, y: 0, down: false };
@@ -608,6 +744,8 @@ let frame = 0;
 let score = 0;
 let runStartTime = 0;
 let gameRunning = false;
+let runKills = 0;
+let runDropsCollected = 0;
 
 let selectedMode = "campaign";
 let selectedDifficulty = "easy";
@@ -665,7 +803,15 @@ function loadSave() {
         maxLevelReached: 1,
         totalRuns: 0,
         totalKills: 0,
-        totalDropsCollected: 0
+        totalDropsCollected: 0,
+        techPoints: 0,
+        shipStyle: "bunny",
+        upgrades: {
+            hull: 0,
+            thruster: 0,
+            weapon: 0,
+            plasma: 0
+        }
     };
 
     try {
@@ -673,13 +819,24 @@ function loadSave() {
         if (!raw) raw = localStorage.getItem(LEGACY_STORAGE_KEY);
         if (!raw) return fallback;
         const parsed = JSON.parse(raw);
+        const upgrades = parsed.upgrades || {};
+        const normalized = {
+            hull: Math.max(0, Math.min(MAX_UPGRADE_LEVEL, upgrades.hull || 0)),
+            thruster: Math.max(0, Math.min(MAX_UPGRADE_LEVEL, upgrades.thruster || 0)),
+            weapon: Math.max(0, Math.min(MAX_UPGRADE_LEVEL, upgrades.weapon || 0)),
+            plasma: Math.max(0, Math.min(MAX_UPGRADE_LEVEL, upgrades.plasma || 0))
+        };
+        const style = typeof parsed.shipStyle === "string" ? parsed.shipStyle : "bunny";
         return {
             campaignBest: parsed.campaignBest || 0,
             survivalBest: parsed.survivalBest || 0,
             maxLevelReached: parsed.maxLevelReached || 1,
             totalRuns: parsed.totalRuns || 0,
             totalKills: parsed.totalKills || 0,
-            totalDropsCollected: parsed.totalDropsCollected || 0
+            totalDropsCollected: parsed.totalDropsCollected || 0,
+            techPoints: parsed.techPoints || 0,
+            shipStyle: SHIP_STYLES[style] ? style : "bunny",
+            upgrades: normalized
         };
     } catch (e) {
         console.warn("Failed to parse local save, resetting.", e);
@@ -698,6 +855,9 @@ function resetSave() {
     saveData.totalRuns = 0;
     saveData.totalKills = 0;
     saveData.totalDropsCollected = 0;
+    saveData.techPoints = 0;
+    saveData.shipStyle = "bunny";
+    saveData.upgrades = { hull: 0, thruster: 0, weapon: 0, plasma: 0 };
     persistSave();
     updateStartStats();
     updateHudStats();
@@ -715,6 +875,78 @@ function setOnlineControlsEnabled(enabled) {
     document.getElementById("login-btn").disabled = !enabled;
     document.getElementById("logout-btn").disabled = !enabled;
     document.getElementById("refresh-lb-btn").disabled = !enabled;
+}
+
+function getUpgradeLevel(key) {
+    return Math.max(0, Math.min(MAX_UPGRADE_LEVEL, (saveData.upgrades && saveData.upgrades[key]) || 0));
+}
+
+function shipStyleUnlocked(style) {
+    if (!SHIP_STYLES[style]) return false;
+    return getUpgradeLevel("weapon") >= SHIP_STYLES[style].unlockWeaponLevel;
+}
+
+function ensureShipStyleValidity() {
+    if (!shipStyleUnlocked(saveData.shipStyle)) {
+        saveData.shipStyle = "bunny";
+    }
+}
+
+function upgradeCost(key) {
+    const level = getUpgradeLevel(key);
+    return UPGRADE_BASE_COST[key] * (level + 1);
+}
+
+function renderHangarPanel() {
+    ensureShipStyleValidity();
+
+    hangarPointsEl.textContent = String(saveData.techPoints || 0);
+    hangarSummaryEl.textContent = "Chassis: " + SHIP_STYLES[saveData.shipStyle].label;
+
+    for (const key of Object.keys(upgradeMetaEls)) {
+        const level = getUpgradeLevel(key);
+        const cost = upgradeCost(key);
+        const atMax = level >= MAX_UPGRADE_LEVEL;
+        const label = "Lv " + level + "/" + MAX_UPGRADE_LEVEL + (atMax ? " (Max)" : " | Cost: " + cost);
+        upgradeMetaEls[key].textContent = label;
+        const btn = document.getElementById("upg-" + key + "-btn");
+        btn.disabled = atMax || saveData.techPoints < cost;
+        btn.textContent = atMax ? "MAXED" : "Upgrade";
+    }
+
+    for (const style of Object.keys(shipStyleButtons)) {
+        const btn = shipStyleButtons[style];
+        const unlocked = shipStyleUnlocked(style);
+        const active = saveData.shipStyle === style;
+        btn.classList.toggle("active", active);
+        btn.classList.toggle("locked", !unlocked);
+        btn.disabled = !unlocked;
+    }
+}
+
+function tryUpgrade(key) {
+    const level = getUpgradeLevel(key);
+    if (level >= MAX_UPGRADE_LEVEL) return;
+    const cost = upgradeCost(key);
+    if (saveData.techPoints < cost) {
+        return;
+    }
+
+    saveData.techPoints -= cost;
+    saveData.upgrades[key] = level + 1;
+    ensureShipStyleValidity();
+    persistSave();
+    renderHangarPanel();
+    updateStartStats();
+}
+
+function setShipStyle(style) {
+    if (!shipStyleUnlocked(style)) {
+        return;
+    }
+    saveData.shipStyle = style;
+    persistSave();
+    renderHangarPanel();
 }
 
 function mergedCampaignBest() {
@@ -929,6 +1161,7 @@ function updateStartStats() {
     startCampaignBestEl.textContent = mergedCampaignBest();
     startSurvivalBestEl.textContent = mergedSurvivalBest();
     startMaxLevelEl.textContent = mergedMaxLevel();
+    renderHangarPanel();
 }
 
 function updateHudStats() {
@@ -967,6 +1200,25 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
+function getBulletStyle() {
+    const plasma = getUpgradeLevel("plasma");
+    const weapon = getUpgradeLevel("weapon");
+
+    let color = "#ffe369";
+    if (plasma >= 2) color = "#65f5ff";
+    if (plasma >= 4) color = "#ff8fe8";
+
+    let shape = "orb";
+    if (weapon >= 2) shape = "diamond";
+    if (weapon >= 4) shape = "spear";
+
+    return {
+        color,
+        shape,
+        radius: 4 + Math.floor(weapon / 2)
+    };
+}
+
 class Player {
     constructor() {
         this.x = width / 2;
@@ -974,10 +1226,10 @@ class Player {
         this.radius = 15;
         this.color = "#00f0ff";
         this.angle = 0;
-        this.maxHealth = 120;
+        this.maxHealth = 120 + getUpgradeLevel("hull") * 14;
         this.health = this.maxHealth;
         this.lastShot = 0;
-        this.fireRate = difficultySettings[selectedDifficulty].fireRate;
+        this.fireRate = Math.max(5, difficultySettings[selectedDifficulty].fireRate - getUpgradeLevel("weapon"));
         this.friction = 0.92;
         this.velocity = { x: 0, y: 0 };
         this.invulnerableUntil = 0;
@@ -998,44 +1250,79 @@ class Player {
         ctx.shadowBlur = 14;
         ctx.shadowColor = this.color;
 
-        // Bunny body
-        ctx.beginPath();
-        ctx.ellipse(-3, 0, 13, 11, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
+        if (saveData.shipStyle === "capsule") {
+            // Capsule evolution chassis.
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 18, 10.5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
 
-        // Bunny head
-        ctx.beginPath();
-        ctx.arc(11, 0, 9, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(9, 0, 7, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
 
-        // Bunny ears
-        ctx.beginPath();
-        ctx.ellipse(13, -12, 3.2, 9.5, 0.15, 0, Math.PI * 2);
-        ctx.ellipse(6, -12, 3.2, 9.5, -0.1, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = "#d8f8ff";
+            ctx.beginPath();
+            ctx.arc(12, -1, 1.2, 0, Math.PI * 2);
+            ctx.fill();
+        } else if (saveData.shipStyle === "spear") {
+            ctx.beginPath();
+            ctx.moveTo(22, 0);
+            ctx.lineTo(-12, -10);
+            ctx.lineTo(-17, 0);
+            ctx.lineTo(-12, 10);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
 
-        // Bunny eye and nose
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = "#d8f8ff";
-        ctx.beginPath();
-        ctx.arc(14, -2, 1.6, 0, Math.PI * 2);
-        ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(-4, -5);
+            ctx.lineTo(10, 0);
+            ctx.lineTo(-4, 5);
+            ctx.closePath();
+            ctx.fillStyle = "#0e1e2a";
+            ctx.fill();
+            ctx.strokeStyle = "#7ff7ff";
+            ctx.stroke();
+        } else {
+            // Bunny base chassis.
+            ctx.beginPath();
+            ctx.ellipse(-3, 0, 13, 11, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
 
-        ctx.fillStyle = "#ff8ccf";
-        ctx.beginPath();
-        ctx.arc(19, 1, 1.4, 0, Math.PI * 2);
-        ctx.fill();
+            ctx.beginPath();
+            ctx.arc(11, 0, 9, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
 
-        // Thruster trail
+            ctx.beginPath();
+            ctx.ellipse(13, -12, 3.2, 9.5, 0.15, 0, Math.PI * 2);
+            ctx.ellipse(6, -12, 3.2, 9.5, -0.1, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = "#d8f8ff";
+            ctx.beginPath();
+            ctx.arc(14, -2, 1.6, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = "#ff8ccf";
+            ctx.beginPath();
+            ctx.arc(19, 1, 1.4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Thruster trail strength scales with thrusters upgrade.
         ctx.strokeStyle = this.color;
-        ctx.shadowBlur = 10;
+        ctx.shadowBlur = 10 + getUpgradeLevel("thruster") * 2;
         ctx.shadowColor = this.color;
         ctx.beginPath();
         ctx.moveTo(-16, 0);
-        ctx.lineTo(-26, 0);
+        ctx.lineTo(-28 - getUpgradeLevel("thruster") * 1.8, 0);
         ctx.stroke();
 
         if (perkTimers.shield > 0) {
@@ -1084,8 +1371,9 @@ class Player {
         }
 
         const speedMult = Date.now() < moveDebuffUntil ? 0.78 : 1;
-        this.velocity.x += dx * 0.72 * speedMult;
-        this.velocity.y += dy * 0.72 * speedMult;
+        const thrusterBoost = 1 + getUpgradeLevel("thruster") * 0.06;
+        this.velocity.x += dx * 0.72 * speedMult * thrusterBoost;
+        this.velocity.y += dy * 0.72 * speedMult * thrusterBoost;
         this.x += this.velocity.x;
         this.y += this.velocity.y;
         this.velocity.x *= this.friction;
@@ -1125,7 +1413,7 @@ class Player {
         }
         this.velocity.x -= Math.cos(this.angle) * 1.5;
         this.velocity.y -= Math.sin(this.angle) * 1.5;
-        createParticles(this.x, this.y, "#f5ff99", 2);
+        createParticles(this.x, this.y, getBulletStyle().color, 2);
     }
 
     takeDamage(amount) {
@@ -1163,24 +1451,47 @@ class Player {
 }
 
 class Projectile {
-    constructor(x, y, velocity, color, damage = 1, isEnemy = false, pierce = 0) {
+    constructor(x, y, velocity, color, damage = 1, isEnemy = false, pierce = 0, shape = "orb", radius = null) {
         this.x = x;
         this.y = y;
         this.velocity = velocity;
-        this.radius = isEnemy ? 4.5 : 4;
+        this.radius = radius !== null ? radius : (isEnemy ? 4.5 : 4);
         this.color = color;
         this.damage = damage;
         this.isEnemy = isEnemy;
         this.pierce = pierce;
+        this.shape = shape;
     }
 
     draw() {
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         ctx.fillStyle = this.color;
         ctx.shadowBlur = 10;
         ctx.shadowColor = this.color;
-        ctx.fill();
+        if (this.shape === "diamond") {
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y - this.radius);
+            ctx.lineTo(this.x + this.radius, this.y);
+            ctx.lineTo(this.x, this.y + this.radius);
+            ctx.lineTo(this.x - this.radius, this.y);
+            ctx.closePath();
+            ctx.fill();
+        } else if (this.shape === "spear") {
+            const ang = Math.atan2(this.velocity.y, this.velocity.x);
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(ang);
+            ctx.beginPath();
+            ctx.moveTo(this.radius * 1.9, 0);
+            ctx.lineTo(-this.radius * 1.1, -this.radius * 0.8);
+            ctx.lineTo(-this.radius * 1.1, this.radius * 0.8);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+        } else {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
         ctx.shadowBlur = 0;
     }
 
@@ -1494,9 +1805,11 @@ class Drop {
 }
 
 function spawnBullet(angle, speed, x, y) {
+    const bulletStyle = getBulletStyle();
+    const weaponBoost = 1 + getUpgradeLevel("weapon") * 0.05;
     const sx = x + Math.cos(angle) * 20;
     const sy = y + Math.sin(angle) * 20;
-    const vel = { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed };
+    const vel = { x: Math.cos(angle) * speed * weaponBoost, y: Math.sin(angle) * speed * weaponBoost };
     const timeBonus = selectedMode === "survival"
         ? Math.min(0.65, Math.floor((Date.now() - runStartTime) / 22000) * 0.08)
         : Math.min(0.45, (currentLevel - 1) * 0.04);
@@ -1504,7 +1817,7 @@ function spawnBullet(angle, speed, x, y) {
     const powerMult = perkTimers.powerShot > 0 ? 1.45 : 1;
     const damage = (1 + permanentDamageBoost + timeBonus) * powerMult * debuffMult;
     const pierce = perkTimers.powerShot > 0 ? 1 : 0;
-    projectiles.push(new Projectile(sx, sy, vel, "#ffe369", damage, false, pierce));
+    projectiles.push(new Projectile(sx, sy, vel, bulletStyle.color, damage, false, pierce, bulletStyle.shape, bulletStyle.radius));
 }
 
 function createParticles(x, y, color, count) {
@@ -1558,6 +1871,7 @@ function maybeDropDebuff(x, y, enemy) {
 
 function applyDrop(type) {
     saveData.totalDropsCollected += 1;
+    runDropsCollected += 1;
 
     if (type === "triShot") {
         perkTimers.triShot = 900;
@@ -1595,6 +1909,8 @@ function applyDrop(type) {
             createParticles(e.x, e.y, "#ffa96e", 7);
             if (e.health <= 0) {
                 bonus += e.points;
+                saveData.totalKills += 1;
+                runKills += 1;
                 maybeDropPowerup(e.x, e.y);
                 maybeDropDebuff(e.x, e.y, e);
                 if (e.isBoss) bossDefeated = true;
@@ -1611,6 +1927,8 @@ function applyDrop(type) {
             if (e.isBoss) continue;
             e.health -= 999;
             bonus += e.points;
+            saveData.totalKills += 1;
+            runKills += 1;
             createParticles(e.x, e.y, "#ffb36a", 8);
             maybeDropDebuff(e.x, e.y, e);
             enemies.splice(i, 1);
@@ -1681,6 +1999,15 @@ function applyLevelUpgrade(newLevel) {
 
     updateHealthBar();
     updateHudStats();
+}
+
+function calculateRunTechPoints(campaignCleared) {
+    const scorePoints = Math.floor(score / 45);
+    const killPoints = Math.floor(runKills * 1.8);
+    const dropPoints = Math.floor(runDropsCollected * 2.2);
+    const modeBonus = selectedMode === "campaign" ? currentLevel * 5 : Math.floor(survivalIntensity * 6);
+    const clearBonus = campaignCleared ? 120 : 0;
+    return Math.max(25, scorePoints + killPoints + dropPoints + modeBonus + clearBonus);
 }
 
 function spawnWaveIfNeeded() {
@@ -1757,6 +2084,7 @@ function checkCollisions() {
                 if (enemy.health <= 0) {
                     score += enemy.points;
                     saveData.totalKills += 1;
+                    runKills += 1;
                     createParticles(enemy.x, enemy.y, enemy.color, enemy.isBoss ? 26 : 10);
                     maybeDropPowerup(enemy.x, enemy.y);
                     maybeDropDebuff(enemy.x, enemy.y, enemy);
@@ -1812,6 +2140,8 @@ function checkCollisions() {
 function initRun() {
     const diff = difficultySettings[selectedDifficulty];
     score = 0;
+    runKills = 0;
+    runDropsCollected = 0;
     frame = 0;
     currentLevel = 1;
     survivalIntensity = 0;
@@ -1933,6 +2263,9 @@ function endGame(campaignCleared) {
     } else {
         if (score > saveData.survivalBest) saveData.survivalBest = score;
     }
+
+    const earnedPoints = calculateRunTechPoints(campaignCleared);
+    saveData.techPoints += earnedPoints;
     persistSave();
 
     if (firebaseReady && currentUser) {
@@ -1952,14 +2285,14 @@ function endGame(campaignCleared) {
 
     if (campaignCleared) {
         gameOverTitleEl.textContent = "Campaign Cleared";
-        finalExtraLineEl.textContent = "All 10 levels completed on " + difficultySettings[selectedDifficulty].label + " mode.";
+        finalExtraLineEl.textContent = "All 10 levels completed on " + difficultySettings[selectedDifficulty].label + " mode. +" + earnedPoints + " tech points.";
     } else if (selectedMode === "survival") {
         const seconds = Math.floor((Date.now() - runStartTime) / 1000);
         gameOverTitleEl.textContent = "Run Over";
-        finalExtraLineEl.textContent = "You survived " + seconds + " seconds.";
+        finalExtraLineEl.textContent = "You survived " + seconds + " seconds. +" + earnedPoints + " tech points.";
     } else {
         gameOverTitleEl.textContent = "Mission Failed";
-        finalExtraLineEl.textContent = "Reached level " + currentLevel + " of 10.";
+        finalExtraLineEl.textContent = "Reached level " + currentLevel + " of 10. +" + earnedPoints + " tech points.";
     }
 
     gameOverScreen.classList.remove("hidden");
@@ -2053,8 +2386,17 @@ document.getElementById("back-btn").addEventListener("click", () => {
 });
 
 document.getElementById("clear-save-btn").addEventListener("click", () => {
-    if (confirm("Reset local score and progression data?")) resetSave();
+    if (confirm("Reset local score, hangar upgrades, and progression data?")) resetSave();
 });
+
+document.getElementById("upg-hull-btn").addEventListener("click", () => tryUpgrade("hull"));
+document.getElementById("upg-thruster-btn").addEventListener("click", () => tryUpgrade("thruster"));
+document.getElementById("upg-weapon-btn").addEventListener("click", () => tryUpgrade("weapon"));
+document.getElementById("upg-plasma-btn").addEventListener("click", () => tryUpgrade("plasma"));
+
+document.getElementById("ship-style-bunny").addEventListener("click", () => setShipStyle("bunny"));
+document.getElementById("ship-style-capsule").addEventListener("click", () => setShipStyle("capsule"));
+document.getElementById("ship-style-spear").addEventListener("click", () => setShipStyle("spear"));
 
 document.getElementById("register-btn").addEventListener("click", () => {
     registerOnline();

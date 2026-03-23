@@ -846,7 +846,7 @@
 <script>
 const STORAGE_KEY = "space_bun_v1";
 const LEGACY_STORAGE_KEY = "neon_space_defender_v3";
-const BUILD_ID = "v1.0.10";
+const BUILD_ID = "v1.0.11";
 const ACCOUNT_SAVE_PREFIX = STORAGE_KEY + "_account_";
 
 // Base64 helper for config decoding (security obfuscation for public repo)
@@ -1359,6 +1359,11 @@ function applyPvpRoomSnapshot(data) {
         return;
     }
 
+    if (currentUser) {
+        if (pvpRoomData.hostUid === currentUser.uid) pvpRoomRole = "host";
+        else if (pvpRoomData.guestUid === currentUser.uid) pvpRoomRole = "guest";
+    }
+
     const guestJoined = !!pvpRoomData.guestUid;
     const status = String(pvpRoomData.status || "waiting");
     const opponentName = pvpRoomRole === "host"
@@ -1405,6 +1410,35 @@ function watchPvpRoom(roomId) {
 }
 
 async function leavePvpRoom(silent = false) {
+    const roomId = pvpRoomId;
+    const roomRole = pvpRoomRole;
+
+    if (firebaseReady && currentUser && roomId && roomRole) {
+        try {
+            const roomRef = dbApi.doc(dbApi.db, PVP_ROOM_COLLECTION, roomId);
+            const snap = await dbApi.getDoc(roomRef);
+            if (snap.exists()) {
+                const data = snap.data();
+                if (roomRole === "host" && data.hostUid === currentUser.uid) {
+                    await dbApi.deleteDoc(roomRef);
+                } else if (roomRole === "guest" && data.guestUid === currentUser.uid) {
+                    await dbApi.setDoc(roomRef, {
+                        status: "waiting",
+                        guestUid: null,
+                        guestEmail: "",
+                        guestName: "",
+                        guestScore: 0,
+                        guestDone: false,
+                        winnerUid: "",
+                        updatedAt: dbApi.serverTimestamp()
+                    }, { merge: true });
+                }
+            }
+        } catch (e) {
+            console.error("Failed to update room on leave", e);
+        }
+    }
+
     clearPvpSubscription();
     pvpRoomId = "";
     pvpRoomRole = "";
@@ -1491,6 +1525,13 @@ async function joinPvpRoom() {
         setPvpStatus("Rejoined your room " + roomId + ".");
         return;
     }
+    if (data.guestUid && data.guestUid === currentUser.uid) {
+        pvpRoomId = roomId;
+        pvpRoomRole = "guest";
+        watchPvpRoom(roomId);
+        setPvpStatus("Rejoined room " + roomId + " as guest.");
+        return;
+    }
     if (data.guestUid && data.guestUid !== currentUser.uid) {
         setPvpStatus("Room already full.", true);
         setOnlineStatus("Room already full.", true);
@@ -1523,6 +1564,14 @@ function canStartPvpRun() {
     }
     if (!pvpRoomData.guestUid) {
         setPvpStatus("Waiting for opponent to join room.", true);
+        return false;
+    }
+    if (pvpRoomData.hostUid !== currentUser.uid && pvpRoomData.guestUid !== currentUser.uid) {
+        setPvpStatus("You are not a participant in this room.", true);
+        return false;
+    }
+    if (String(pvpRoomData.status || "waiting") === "complete") {
+        setPvpStatus("Room is complete. Create a new room to play again.", true);
         return false;
     }
     return true;
@@ -3693,7 +3742,7 @@ document.getElementById("pvp-join-btn").addEventListener("click", () => {
         console.error(e);
         const code = e && e.code ? String(e.code) : "unknown-error";
         const msg = code === "permission-denied"
-            ? "PvP blocked by Firestore rules (permission-denied)."
+            ? "Join blocked by Firestore rules (permission-denied)."
             : "Failed to join room (" + code + ").";
         setPvpStatus(msg, true);
         setOnlineStatus(msg, true);

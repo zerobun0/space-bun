@@ -250,11 +250,16 @@
         .online-panel {
             width: min(620px, calc(100% - 28px));
             margin: 0 0 14px;
+            border: 1px solid rgba(0, 240, 255, 0.35);
+            background:
+                linear-gradient(180deg, rgba(0, 240, 255, 0.06), rgba(255, 42, 212, 0.03)),
+                rgba(0, 12, 20, 0.72);
+            box-shadow: 0 0 22px rgba(0, 240, 255, 0.12);
         }
 
         .online-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 8px;
             margin-bottom: 8px;
         }
@@ -284,6 +289,13 @@
             color: #ff8f8f;
         }
 
+        .online-warning {
+            color: #ffc2a2;
+            font-size: 11px;
+            margin: 2px 0 7px;
+            line-height: 1.35;
+        }
+
         .leaderboard {
             margin-top: 8px;
             border-top: 1px solid rgba(0, 240, 255, 0.2);
@@ -306,6 +318,21 @@
             line-height: 1.55;
             max-height: 170px;
             overflow: auto;
+        }
+
+        .leaderboard li.admin-pick {
+            cursor: pointer;
+            border-radius: 6px;
+            padding: 2px 4px;
+        }
+
+        .leaderboard li.admin-pick:hover {
+            background: rgba(0, 240, 255, 0.1);
+        }
+
+        .leaderboard li.admin-picked {
+            background: rgba(255, 157, 184, 0.2);
+            color: #ffe4ef;
         }
 
         .admin-panel {
@@ -333,6 +360,12 @@
             color: #b8cdd6;
             font-size: 11px;
             margin-top: 6px;
+        }
+
+        .admin-selected {
+            color: #ffd0e0;
+            font-size: 11px;
+            margin-bottom: 6px;
         }
 
         .small-note {
@@ -589,7 +622,9 @@
             <div class="choice-title">Online Account</div>
             <div id="online-account-text" class="hud-small"></div>
             <div class="online-status" id="online-status">Connecting online...</div>
+            <div class="online-warning">Passwords cannot be reset. If forgotten, create a new account.</div>
             <div class="online-grid">
+                <input id="auth-username" class="online-input" type="text" maxlength="20" placeholder="Username">
                 <input id="auth-email" class="online-input" type="email" placeholder="Email">
                 <input id="auth-password" class="online-input" type="password" placeholder="Password">
             </div>
@@ -605,8 +640,9 @@
             </div>
             <div id="admin-panel" class="admin-panel hidden">
                 <div class="admin-title">Admin Controls</div>
+                <div id="admin-selected-text" class="admin-selected">Select a pilot from leaderboard.</div>
                 <div class="admin-grid">
-                    <input id="admin-target-email" class="online-input" type="email" placeholder="Target email">
+                    <input id="admin-target-email" class="online-input" type="email" placeholder="Target email (or click pilot)">
                     <input id="admin-new-name" class="online-input" type="text" maxlength="20" placeholder="New display name">
                 </div>
                 <div class="row" style="justify-content: flex-start;">
@@ -651,6 +687,7 @@
 const STORAGE_KEY = "space_bun_v1";
 const LEGACY_STORAGE_KEY = "neon_space_defender_v3";
 const BUILD_ID = "v1.0.5";
+const ACCOUNT_SAVE_PREFIX = STORAGE_KEY + "_account_";
 
 // Base64 helper for config decoding (security obfuscation for public repo)
 function decodeBase64(str) {
@@ -757,9 +794,11 @@ const startMaxLevelEl = document.getElementById("start-max-level");
 const onlineAccountTextEl = document.getElementById("online-account-text");
 const onlineStatusEl = document.getElementById("online-status");
 const authEmailEl = document.getElementById("auth-email");
+const authUsernameEl = document.getElementById("auth-username");
 const authPasswordEl = document.getElementById("auth-password");
 const leaderboardListEl = document.getElementById("leaderboard-list");
 const adminPanelEl = document.getElementById("admin-panel");
+const adminSelectedTextEl = document.getElementById("admin-selected-text");
 const adminTargetEmailEl = document.getElementById("admin-target-email");
 const adminNewNameEl = document.getElementById("admin-new-name");
 const hangarPointsEl = document.getElementById("hangar-points");
@@ -828,7 +867,9 @@ let firebaseReady = false;
 let authApi;
 let dbApi;
 let currentUser = null;
+let pendingRegistrationDisplayName = "";
 let leaderboardEntries = [];
+let adminSelectedUid = null;
 let onlineProfile = {
     campaignBest: 0,
     survivalBest: 0,
@@ -848,6 +889,7 @@ function loadSave() {
         totalKills: 0,
         totalDropsCollected: 0,
         techPoints: 0,
+        displayName: "",
         shipStyle: "bunny",
         upgrades: {
             hull: 0,
@@ -878,6 +920,7 @@ function loadSave() {
             totalKills: parsed.totalKills || 0,
             totalDropsCollected: parsed.totalDropsCollected || 0,
             techPoints: parsed.techPoints || 0,
+            displayName: sanitizeDisplayName(parsed.displayName || ""),
             shipStyle: SHIP_STYLES[style] ? style : "bunny",
             upgrades: normalized
         };
@@ -887,20 +930,119 @@ function loadSave() {
     }
 }
 
+function defaultSaveData() {
+    return {
+        campaignBest: 0,
+        survivalBest: 0,
+        maxLevelReached: 1,
+        totalRuns: 0,
+        totalKills: 0,
+        totalDropsCollected: 0,
+        techPoints: 0,
+        displayName: "",
+        shipStyle: "bunny",
+        upgrades: { hull: 0, thruster: 0, weapon: 0, plasma: 0 }
+    };
+}
+
+function normalizeSaveSnapshot(raw) {
+    const base = defaultSaveData();
+    if (!raw || typeof raw !== "object") return base;
+    const upgrades = raw.upgrades || {};
+    const style = SHIP_STYLES[raw.shipStyle] ? raw.shipStyle : "bunny";
+    return {
+        campaignBest: Math.max(0, Number(raw.campaignBest) || 0),
+        survivalBest: Math.max(0, Number(raw.survivalBest) || 0),
+        maxLevelReached: Math.max(1, Number(raw.maxLevelReached) || 1),
+        totalRuns: Math.max(0, Number(raw.totalRuns) || 0),
+        totalKills: Math.max(0, Number(raw.totalKills) || 0),
+        totalDropsCollected: Math.max(0, Number(raw.totalDropsCollected) || 0),
+        techPoints: Math.max(0, Number(raw.techPoints) || 0),
+        displayName: sanitizeDisplayName(raw.displayName || ""),
+        shipStyle: style,
+        upgrades: {
+            hull: Math.max(0, Math.min(MAX_UPGRADE_LEVEL, Number(upgrades.hull) || 0)),
+            thruster: Math.max(0, Math.min(MAX_UPGRADE_LEVEL, Number(upgrades.thruster) || 0)),
+            weapon: Math.max(0, Math.min(MAX_UPGRADE_LEVEL, Number(upgrades.weapon) || 0)),
+            plasma: Math.max(0, Math.min(MAX_UPGRADE_LEVEL, Number(upgrades.plasma) || 0))
+        }
+    };
+}
+
+function applySaveData(snapshot) {
+    const normalized = normalizeSaveSnapshot(snapshot);
+    saveData.campaignBest = normalized.campaignBest;
+    saveData.survivalBest = normalized.survivalBest;
+    saveData.maxLevelReached = normalized.maxLevelReached;
+    saveData.totalRuns = normalized.totalRuns;
+    saveData.totalKills = normalized.totalKills;
+    saveData.totalDropsCollected = normalized.totalDropsCollected;
+    saveData.techPoints = normalized.techPoints;
+    saveData.displayName = normalized.displayName;
+    saveData.shipStyle = normalized.shipStyle;
+    saveData.upgrades = { ...normalized.upgrades };
+}
+
+function getAccountStorageKey(uid) {
+    return ACCOUNT_SAVE_PREFIX + uid;
+}
+
+function getActiveSaveStorageKey() {
+    if (!currentUser) return STORAGE_KEY;
+    return getAccountStorageKey(currentUser.uid);
+}
+
+function loadSaveFromStorageKey(key) {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    try {
+        return normalizeSaveSnapshot(JSON.parse(raw));
+    } catch (e) {
+        console.warn("Failed to parse save key", key, e);
+        return null;
+    }
+}
+
+function hasMeaningfulProgress(snapshot) {
+    if (!snapshot) return false;
+    return snapshot.campaignBest > 0
+        || snapshot.survivalBest > 0
+        || snapshot.maxLevelReached > 1
+        || snapshot.totalRuns > 0
+        || snapshot.totalKills > 0
+        || snapshot.totalDropsCollected > 0
+        || snapshot.techPoints > 0
+        || Object.values(snapshot.upgrades || {}).some((v) => v > 0);
+}
+
+function mergeSaveSnapshots(primary, secondary) {
+    const a = normalizeSaveSnapshot(primary);
+    const b = normalizeSaveSnapshot(secondary);
+    return {
+        campaignBest: Math.max(a.campaignBest, b.campaignBest),
+        survivalBest: Math.max(a.survivalBest, b.survivalBest),
+        maxLevelReached: Math.max(a.maxLevelReached, b.maxLevelReached),
+        totalRuns: Math.max(a.totalRuns, b.totalRuns),
+        totalKills: Math.max(a.totalKills, b.totalKills),
+        totalDropsCollected: Math.max(a.totalDropsCollected, b.totalDropsCollected),
+        techPoints: Math.max(a.techPoints, b.techPoints),
+        displayName: a.displayName || b.displayName,
+        shipStyle: SHIP_STYLES[a.shipStyle] ? a.shipStyle : b.shipStyle,
+        upgrades: {
+            hull: Math.max(a.upgrades.hull, b.upgrades.hull),
+            thruster: Math.max(a.upgrades.thruster, b.upgrades.thruster),
+            weapon: Math.max(a.upgrades.weapon, b.upgrades.weapon),
+            plasma: Math.max(a.upgrades.plasma, b.upgrades.plasma)
+        }
+    };
+}
+
 function persistSave() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(saveData));
+    localStorage.setItem(getActiveSaveStorageKey(), JSON.stringify(saveData));
 }
 
 function resetSave() {
-    saveData.campaignBest = 0;
-    saveData.survivalBest = 0;
-    saveData.maxLevelReached = 1;
-    saveData.totalRuns = 0;
-    saveData.totalKills = 0;
-    saveData.totalDropsCollected = 0;
-    saveData.techPoints = 0;
-    saveData.shipStyle = "bunny";
-    saveData.upgrades = { hull: 0, thruster: 0, weapon: 0, plasma: 0 };
+    applySaveData(defaultSaveData());
     persistSave();
     updateStartStats();
     updateHudStats();
@@ -935,6 +1077,24 @@ function currentUserIsAdmin() {
 function updateAdminPanelVisibility() {
     const show = firebaseReady && currentUserIsAdmin();
     adminPanelEl.classList.toggle("hidden", !show);
+    if (!show) {
+        adminSelectedUid = null;
+        adminTargetEmailEl.value = "";
+        adminNewNameEl.value = "";
+    }
+}
+
+function setAdminSelectedTarget(entry) {
+    adminSelectedUid = entry && entry.uid ? entry.uid : null;
+    const email = entry && entry.email ? String(entry.email) : "";
+    const currentName = entry ? sanitizeDisplayName(entry.displayName || email.split("@")[0] || "") : "";
+    adminTargetEmailEl.value = email;
+    adminNewNameEl.value = currentName;
+    if (!adminSelectedUid) {
+        adminSelectedTextEl.textContent = "Select a pilot from leaderboard.";
+        return;
+    }
+    adminSelectedTextEl.textContent = "Selected: " + (currentName || "unknown") + (email ? " (" + email + ")" : "");
 }
 
 function sanitizeDisplayName(input) {
@@ -1150,6 +1310,7 @@ function renderLeaderboard(entries) {
     leaderboardEntries = entries;
     leaderboardListEl.innerHTML = "";
     if (!entries.length) {
+        setAdminSelectedTarget(null);
         const li = document.createElement("li");
         li.textContent = "No scores yet";
         leaderboardListEl.appendChild(li);
@@ -1163,7 +1324,21 @@ function renderLeaderboard(entries) {
         const name = sanitizeDisplayName(rawName) || "unknown";
         const badge = normalizeEmail(email) === normalizeEmail(ADMIN_EMAIL) ? " [ADMIN]" : "";
         li.textContent = name + badge + " - " + (entry.combinedBest || 0);
+        if (currentUserIsAdmin()) {
+            li.classList.add("admin-pick");
+            if (adminSelectedUid && entry.uid === adminSelectedUid) {
+                li.classList.add("admin-picked");
+            }
+            li.addEventListener("click", () => {
+                setAdminSelectedTarget(entry);
+                renderLeaderboard(leaderboardEntries);
+            });
+        }
         leaderboardListEl.appendChild(li);
+    }
+
+    if (currentUserIsAdmin() && !adminSelectedUid) {
+        setAdminSelectedTarget(entries[0]);
     }
 }
 
@@ -1228,15 +1403,22 @@ async function adminRenameUser() {
 
     const targetEmail = normalizeEmail(adminTargetEmailEl.value);
     const newName = sanitizeDisplayName(adminNewNameEl.value);
-    if (!targetEmail || !newName) {
-        setOnlineStatus("Enter target email and new name.", true);
+    if (!newName) {
+        setOnlineStatus("Enter a new name first.", true);
         return;
     }
 
     try {
-        const target = await findUserDocByEmail(targetEmail);
+        let target = null;
+        if (adminSelectedUid) {
+            const snap = await dbApi.getDoc(dbApi.doc(dbApi.db, USER_COLLECTION, adminSelectedUid));
+            if (snap.exists()) target = { uid: adminSelectedUid, data: snap.data() };
+        }
+        if (!target && targetEmail) {
+            target = await findUserDocByEmail(targetEmail);
+        }
         if (!target) {
-            setOnlineStatus("User not found.", true);
+            setOnlineStatus("Select a pilot row or enter target email.", true);
             return;
         }
         await dbApi.setDoc(dbApi.doc(dbApi.db, USER_COLLECTION, target.uid), {
@@ -1257,24 +1439,28 @@ async function adminDeleteUser() {
         return;
     }
 
-    const targetEmail = normalizeEmail(adminTargetEmailEl.value);
-    if (!targetEmail) {
-        setOnlineStatus("Enter target email first.", true);
-        return;
-    }
-
-    if (targetEmail === normalizeEmail(ADMIN_EMAIL)) {
-        setOnlineStatus("Admin account deletion blocked.", true);
-        return;
-    }
-
     try {
-        const target = await findUserDocByEmail(targetEmail);
+        const targetEmail = normalizeEmail(adminTargetEmailEl.value);
+        let target = null;
+        if (adminSelectedUid) {
+            const snap = await dbApi.getDoc(dbApi.doc(dbApi.db, USER_COLLECTION, adminSelectedUid));
+            if (snap.exists()) target = { uid: adminSelectedUid, data: snap.data() };
+        }
+        if (!target && targetEmail) {
+            target = await findUserDocByEmail(targetEmail);
+        }
         if (!target) {
-            setOnlineStatus("User not found.", true);
+            setOnlineStatus("Select a pilot row or enter target email.", true);
+            return;
+        }
+
+        const resolvedEmail = normalizeEmail(target.data.email || targetEmail);
+        if (resolvedEmail === normalizeEmail(ADMIN_EMAIL)) {
+            setOnlineStatus("Admin account deletion blocked.", true);
             return;
         }
         await dbApi.deleteDoc(dbApi.doc(dbApi.db, USER_COLLECTION, target.uid));
+        setAdminSelectedTarget(null);
         setOnlineStatus("User removed from leaderboard.");
         await loadLeaderboard();
     } catch (e) {
@@ -2623,6 +2809,14 @@ document.getElementById("admin-rename-btn").addEventListener("click", () => {
 
 document.getElementById("admin-delete-btn").addEventListener("click", () => {
     adminDeleteUser();
+});
+
+adminTargetEmailEl.addEventListener("input", () => {
+    if (adminSelectedUid) {
+        adminSelectedUid = null;
+        adminSelectedTextEl.textContent = "Manual email mode.";
+        renderLeaderboard(leaderboardEntries);
+    }
 });
 
 setMode("campaign");

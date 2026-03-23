@@ -48,7 +48,7 @@
             width: 100%;
             padding: 16px;
             display: grid;
-            grid-template-columns: repeat(3, minmax(160px, 1fr));
+            grid-template-columns: repeat(4, minmax(140px, 1fr));
             gap: 10px;
             align-items: start;
             pointer-events: auto;
@@ -80,6 +80,12 @@
         .hud-small {
             color: #9fc5d0;
             font-size: 12px;
+        }
+
+        #fps-counter {
+            color: #97c9d6;
+            font-size: 12px;
+            margin-top: 3px;
         }
 
         .health-wrap {
@@ -397,6 +403,11 @@
                 <div class="hud-value">Lives: <span id="lives">3</span></div>
                 <div id="perks-active"></div>
             </div>
+            <div class="hud-card">
+                <div class="hud-title">Performance</div>
+                <div class="hud-value" id="fps-value">0</div>
+                <div id="fps-counter">FPS</div>
+            </div>
         </div>
 
         <div class="health-wrap">
@@ -466,7 +477,7 @@
         </div>
 
         <div class="small-note">
-            Random drops: Tri-Shot, Rapid Fire, Shield, Repair, Extra Life, Shockwave Bomb.
+            Random drops: Tri-Shot, Rapid Fire, Power Shot, Shield, Repair, Extra Life, Blast Bomb, Nuke Bomb, Weakness Orb.
             Drops are picked up by flying through them.
         </div>
 
@@ -566,6 +577,7 @@ const hudDifficultyEl = document.getElementById("hud-difficulty");
 const livesEl = document.getElementById("lives");
 const perksEl = document.getElementById("perks-active");
 const healthFill = document.getElementById("health-fill");
+const fpsValueEl = document.getElementById("fps-value");
 
 const startScreen = document.getElementById("start-screen");
 const gameOverScreen = document.getElementById("game-over-screen");
@@ -602,20 +614,32 @@ let selectedDifficulty = "easy";
 let currentLevel = 1;
 let lives = 3;
 let survivalIntensity = 0;
+const MAX_LIVES = 4;
 
 let player;
 let projectiles = [];
+let enemyProjectiles = [];
 let enemies = [];
 let particles = [];
 let stars = [];
 let drops = [];
 let shakeDuration = 0;
 let levelBannerUntil = 0;
+let permanentDamageBoost = 0;
+let damageDebuffUntil = 0;
+let moveDebuffUntil = 0;
+let mariusSpawned = false;
+let bossDefeated = false;
+
+let fpsAccumulator = 0;
+let fpsFrames = 0;
+let fpsLastMark = performance.now();
 
 let perkTimers = {
     triShot: 0,
     rapidFire: 0,
-    shield: 0
+    shield: 0,
+    powerShot: 0
 };
 
 let firebaseReady = false;
@@ -922,9 +946,12 @@ function updateHudStats() {
     livesEl.textContent = lives;
 
     const labels = [];
-    if (perkTimers.triShot > 0) labels.push("Tri-Shot");
-    if (perkTimers.rapidFire > 0) labels.push("Rapid Fire");
-    if (perkTimers.shield > 0) labels.push("Shielded");
+    if (perkTimers.triShot > 0) labels.push("Tri " + Math.ceil(perkTimers.triShot / 60) + "s");
+    if (perkTimers.rapidFire > 0) labels.push("Rapid " + Math.ceil(perkTimers.rapidFire / 60) + "s");
+    if (perkTimers.powerShot > 0) labels.push("Power " + Math.ceil(perkTimers.powerShot / 60) + "s");
+    if (perkTimers.shield > 0) labels.push("Shield " + Math.ceil(perkTimers.shield / 60) + "s");
+    if (Date.now() < moveDebuffUntil) labels.push("Engine Down");
+    if (Date.now() < damageDebuffUntil) labels.push("Weapon Jam");
     perksEl.textContent = labels.length ? "Perks: " + labels.join(" | ") : "Perks: none";
 }
 
@@ -947,7 +974,7 @@ class Player {
         this.radius = 15;
         this.color = "#00f0ff";
         this.angle = 0;
-        this.maxHealth = 100;
+        this.maxHealth = 120;
         this.health = this.maxHealth;
         this.lastShot = 0;
         this.fireRate = difficultySettings[selectedDifficulty].fireRate;
@@ -1011,6 +1038,34 @@ class Player {
         ctx.lineTo(-26, 0);
         ctx.stroke();
 
+        if (perkTimers.shield > 0) {
+            ctx.beginPath();
+            ctx.arc(0, 0, 24 + Math.sin(frame * 0.22) * 1.4, 0, Math.PI * 2);
+            ctx.strokeStyle = "rgba(108, 199, 255, 0.85)";
+            ctx.lineWidth = 2.2;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = "#6cc7ff";
+            ctx.stroke();
+        }
+
+        if (perkTimers.powerShot > 0) {
+            ctx.beginPath();
+            ctx.arc(19, 0, 4 + Math.sin(frame * 0.35), 0, Math.PI * 2);
+            ctx.strokeStyle = "#ffb86a";
+            ctx.lineWidth = 1.6;
+            ctx.stroke();
+        }
+
+        if (Date.now() < moveDebuffUntil || Date.now() < damageDebuffUntil) {
+            ctx.beginPath();
+            ctx.arc(0, 0, 21, 0, Math.PI * 2);
+            ctx.strokeStyle = "rgba(255, 86, 110, 0.9)";
+            ctx.lineWidth = 2;
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = "#ff566e";
+            ctx.stroke();
+        }
+
         ctx.restore();
     }
 
@@ -1028,8 +1083,9 @@ class Player {
             dy /= mag;
         }
 
-        this.velocity.x += dx * 0.72;
-        this.velocity.y += dy * 0.72;
+        const speedMult = Date.now() < moveDebuffUntil ? 0.78 : 1;
+        this.velocity.x += dx * 0.72 * speedMult;
+        this.velocity.y += dy * 0.72 * speedMult;
         this.x += this.velocity.x;
         this.y += this.velocity.y;
         this.velocity.x *= this.friction;
@@ -1055,6 +1111,7 @@ class Player {
         this.angle = Math.atan2(mouse.y - this.y, mouse.x - this.x);
 
         let effectiveFireRate = this.fireRate;
+        if (Date.now() < damageDebuffUntil) effectiveFireRate += 3;
         if (perkTimers.rapidFire > 0) effectiveFireRate = Math.max(4, effectiveFireRate - 3);
         if (mouse.down && frame - this.lastShot > effectiveFireRate) this.shoot();
     }
@@ -1074,6 +1131,10 @@ class Player {
     takeDamage(amount) {
         if (Date.now() < this.invulnerableUntil) return;
         if (perkTimers.shield > 0) {
+            this.health -= amount * 0.45;
+            if (this.health <= 0) this.health = 1;
+            updateHealthBar();
+            updateHudStats();
             createParticles(this.x, this.y, "#6cc7ff", 8);
             shakeScreen(3);
             return;
@@ -1102,12 +1163,15 @@ class Player {
 }
 
 class Projectile {
-    constructor(x, y, velocity, color) {
+    constructor(x, y, velocity, color, damage = 1, isEnemy = false, pierce = 0) {
         this.x = x;
         this.y = y;
         this.velocity = velocity;
-        this.radius = 4;
+        this.radius = isEnemy ? 4.5 : 4;
         this.color = color;
+        this.damage = damage;
+        this.isEnemy = isEnemy;
+        this.pierce = pierce;
     }
 
     draw() {
@@ -1127,7 +1191,9 @@ class Projectile {
 }
 
 class Enemy {
-    constructor() {
+    constructor(type = "chaser") {
+        this.type = type;
+
         if (Math.random() < 0.5) {
             this.x = Math.random() < 0.5 ? -30 : width + 30;
             this.y = Math.random() * height;
@@ -1150,6 +1216,51 @@ class Enemy {
         this.spinSpeed = randomRange(-0.08, 0.08);
         this.points = Math.floor(120 / this.speed);
         this.damage = Math.max(10, Math.floor(17 * diff.damageScale));
+        this.maxHealth = 1;
+        this.health = 1;
+        this.shootCooldown = 0;
+        this.fuse = 0;
+        this.blastRadius = 0;
+        this.isBoss = false;
+        this.name = "";
+
+        if (this.type === "tank") {
+            this.radius = randomRange(24, 34);
+            this.speed *= 0.62;
+            this.maxHealth = 4;
+            this.health = this.maxHealth;
+            this.points = 210;
+            this.damage = Math.floor(this.damage * 1.25);
+            this.color = "#ff7b52";
+        } else if (this.type === "shooter") {
+            this.radius = randomRange(16, 22);
+            this.speed *= 0.82;
+            this.maxHealth = 2;
+            this.health = this.maxHealth;
+            this.points = 165;
+            this.shootCooldown = Math.floor(randomRange(75, 120));
+            this.color = "#ff57a9";
+        } else if (this.type === "exploder") {
+            this.radius = randomRange(18, 24);
+            this.speed *= 0.9;
+            this.maxHealth = 2;
+            this.health = this.maxHealth;
+            this.points = 180;
+            this.fuse = -1;
+            this.blastRadius = Math.floor(this.radius * 2.7);
+            this.color = "#ff9b4e";
+        } else if (this.type === "boss") {
+            this.radius = 62;
+            this.speed = Math.max(0.8, this.speed * 0.55);
+            this.maxHealth = 95;
+            this.health = this.maxHealth;
+            this.points = 2400;
+            this.damage = 28;
+            this.shootCooldown = 42;
+            this.isBoss = true;
+            this.name = "Marius";
+            this.color = "#ff3f8e";
+        }
     }
 
     draw() {
@@ -1175,13 +1286,92 @@ class Enemy {
         ctx.arc(0, 0, this.radius * 0.32, 0, Math.PI * 2);
         ctx.fillStyle = this.color;
         ctx.fill();
+
+        if (this.type === "exploder" && this.fuse >= 0) {
+            const pulse = 0.55 + Math.sin(frame * 0.28) * 0.3;
+            ctx.globalAlpha = Math.max(0.3, pulse);
+            ctx.beginPath();
+            ctx.arc(0, 0, this.blastRadius, 0, Math.PI * 2);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = "#ffb36f";
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+        }
+
+        if (this.maxHealth > 1) {
+            const w = this.radius * 1.9;
+            const h = 5;
+            const pct = Math.max(0, this.health / this.maxHealth);
+            ctx.fillStyle = "rgba(15, 20, 24, 0.85)";
+            ctx.fillRect(-w / 2, -this.radius - 12, w, h);
+            ctx.fillStyle = this.isBoss ? "#ffd76f" : "#77f1ff";
+            ctx.fillRect(-w / 2, -this.radius - 12, w * pct, h);
+        }
+
+        if (this.isBoss) {
+            ctx.fillStyle = "#ffe8f6";
+            ctx.font = "bold 12px Segoe UI";
+            ctx.textAlign = "center";
+            ctx.fillText("Marius", 0, -this.radius - 20);
+        }
         ctx.restore();
     }
 
     update() {
         const ang = Math.atan2(player.y - this.y, player.x - this.x);
-        this.x += Math.cos(ang) * this.speed;
-        this.y += Math.sin(ang) * this.speed;
+        const dist = Math.hypot(player.x - this.x, player.y - this.y);
+
+        if (this.type === "shooter") {
+            const ideal = 260;
+            const moveDir = dist > ideal ? 1 : -0.45;
+            this.x += Math.cos(ang) * this.speed * moveDir;
+            this.y += Math.sin(ang) * this.speed * moveDir;
+
+            this.shootCooldown -= 1;
+            if (this.shootCooldown <= 0) {
+                const bulletVel = { x: Math.cos(ang) * 5.1, y: Math.sin(ang) * 5.1 };
+                enemyProjectiles.push(new Projectile(this.x, this.y, bulletVel, "#ff6d90", 14, true));
+                this.shootCooldown = Math.floor(randomRange(80, 130));
+            }
+        } else if (this.type === "exploder") {
+            if (this.fuse < 0) {
+                this.x += Math.cos(ang) * this.speed;
+                this.y += Math.sin(ang) * this.speed;
+                if (dist < 130) this.fuse = 52;
+            } else {
+                this.fuse -= 1;
+                if (this.fuse <= 0) {
+                    if (dist < this.blastRadius + player.radius) {
+                        player.takeDamage(this.damage + 10);
+                    }
+                    createParticles(this.x, this.y, "#ffb36a", 26);
+                    this.health = 0;
+                }
+            }
+        } else if (this.isBoss) {
+            this.x += Math.cos(ang) * this.speed;
+            this.y += Math.sin(ang) * this.speed;
+            this.shootCooldown -= 1;
+            if (this.shootCooldown <= 0) {
+                const offsets = [-0.32, 0, 0.32];
+                for (const off of offsets) {
+                    const a = ang + off;
+                    enemyProjectiles.push(new Projectile(
+                        this.x,
+                        this.y,
+                        { x: Math.cos(a) * 5.7, y: Math.sin(a) * 5.7 },
+                        "#ff5f82",
+                        18,
+                        true
+                    ));
+                }
+                this.shootCooldown = 34;
+            }
+        } else {
+            this.x += Math.cos(ang) * this.speed;
+            this.y += Math.sin(ang) * this.speed;
+        }
+
         this.angle += this.spinSpeed;
     }
 }
@@ -1245,10 +1435,13 @@ class Drop {
         const cfg = {
             triShot: { color: "#ffd84d", label: "TRI" },
             rapidFire: { color: "#9cff66", label: "SPD" },
+            powerShot: { color: "#ffb86a", label: "DMG" },
             shield: { color: "#6cc7ff", label: "SHD" },
             repair: { color: "#5bffca", label: "HP" },
             extraLife: { color: "#ff89d9", label: "+1" },
-            bomb: { color: "#ffa260", label: "BMB" }
+            miniBomb: { color: "#ff9f5d", label: "ABM" },
+            bomb: { color: "#ff7f66", label: "NUK" },
+            debuff: { color: "#ff4f70", label: "WEK" }
         };
 
         this.color = cfg[type].color;
@@ -1304,7 +1497,14 @@ function spawnBullet(angle, speed, x, y) {
     const sx = x + Math.cos(angle) * 20;
     const sy = y + Math.sin(angle) * 20;
     const vel = { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed };
-    projectiles.push(new Projectile(sx, sy, vel, "#ffe369"));
+    const timeBonus = selectedMode === "survival"
+        ? Math.min(0.65, Math.floor((Date.now() - runStartTime) / 22000) * 0.08)
+        : Math.min(0.45, (currentLevel - 1) * 0.04);
+    const debuffMult = Date.now() < damageDebuffUntil ? 0.72 : 1;
+    const powerMult = perkTimers.powerShot > 0 ? 1.45 : 1;
+    const damage = (1 + permanentDamageBoost + timeBonus) * powerMult * debuffMult;
+    const pierce = perkTimers.powerShot > 0 ? 1 : 0;
+    projectiles.push(new Projectile(sx, sy, vel, "#ffe369", damage, false, pierce));
 }
 
 function createParticles(x, y, color, count) {
@@ -1337,14 +1537,23 @@ function maybeDropPowerup(x, y) {
 
     const roll = Math.random();
     let type = "triShot";
-    if (roll < 0.21) type = "triShot";
-    else if (roll < 0.4) type = "rapidFire";
-    else if (roll < 0.58) type = "shield";
-    else if (roll < 0.76) type = "repair";
-    else if (roll < 0.9) type = "extraLife";
+    if (roll < 0.17) type = "triShot";
+    else if (roll < 0.34) type = "rapidFire";
+    else if (roll < 0.47) type = "powerShot";
+    else if (roll < 0.57) type = "shield";
+    else if (roll < 0.71) type = "repair";
+    else if (roll < 0.77) type = "extraLife";
+    else if (roll < 0.9) type = "miniBomb";
     else type = "bomb";
 
     drops.push(new Drop(x, y, type));
+}
+
+function maybeDropDebuff(x, y, enemy) {
+    if (!enemy || enemy.isBoss) return;
+    const chance = enemy.type === "exploder" ? 0.12 : enemy.type === "tank" ? 0.08 : 0.04;
+    if (Math.random() > chance) return;
+    drops.push(new Drop(x, y, "debuff"));
 }
 
 function applyDrop(type) {
@@ -1356,27 +1565,68 @@ function applyDrop(type) {
     } else if (type === "rapidFire") {
         perkTimers.rapidFire = 780;
         showBanner("Perk Online", "Rapid Fire enabled");
+    } else if (type === "powerShot") {
+        perkTimers.powerShot = 700;
+        showBanner("Perk Online", "Power Shot active");
     } else if (type === "shield") {
-        perkTimers.shield = 720;
-        showBanner("Perk Online", "Shield matrix active");
+        perkTimers.shield = 340;
+        showBanner("Perk Online", "Shield dampener active");
     } else if (type === "repair") {
         player.health = Math.min(player.maxHealth, player.health + 35);
         updateHealthBar();
         showBanner("Repaired", "+35 hull integrity");
     } else if (type === "extraLife") {
-        lives += 1;
-        showBanner("Bonus", "Extra life granted");
+        if (lives < MAX_LIVES) {
+            lives += 1;
+            showBanner("Bonus", "Extra life granted");
+        } else {
+            player.health = Math.min(player.maxHealth, player.health + 20);
+            updateHealthBar();
+            showBanner("Converted", "Life cap reached: +20 hull");
+        }
+    } else if (type === "miniBomb") {
+        let bonus = 0;
+        const blastRadius = 260;
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            const e = enemies[i];
+            const dist = Math.hypot(e.x - player.x, e.y - player.y);
+            if (dist > blastRadius) continue;
+            e.health -= 2.3;
+            createParticles(e.x, e.y, "#ffa96e", 7);
+            if (e.health <= 0) {
+                bonus += e.points;
+                maybeDropPowerup(e.x, e.y);
+                maybeDropDebuff(e.x, e.y, e);
+                if (e.isBoss) bossDefeated = true;
+                enemies.splice(i, 1);
+            }
+        }
+        score += bonus;
+        showBanner("Blast Bomb", "Nearby enemies damaged");
+        shakeScreen(9);
     } else if (type === "bomb") {
         let bonus = 0;
         for (let i = enemies.length - 1; i >= 0; i--) {
             const e = enemies[i];
+            if (e.isBoss) continue;
+            e.health -= 999;
             bonus += e.points;
             createParticles(e.x, e.y, "#ffb36a", 8);
+            maybeDropDebuff(e.x, e.y, e);
             enemies.splice(i, 1);
         }
         score += bonus;
-        showBanner("Shockwave", "Area clear");
+        showBanner("Nuke Bomb", "Field cleared (boss immune)");
         shakeScreen(12);
+    } else if (type === "debuff") {
+        const isMoveDebuff = Math.random() < 0.5;
+        if (isMoveDebuff) {
+            moveDebuffUntil = Date.now() + 8500;
+            showBanner("Debuff", "Engines weakened");
+        } else {
+            damageDebuffUntil = Date.now() + 8500;
+            showBanner("Debuff", "Weapons jammed");
+        }
     }
 
     updateHudStats();
@@ -1386,6 +1636,51 @@ function updatePerks() {
     for (const key of Object.keys(perkTimers)) {
         if (perkTimers[key] > 0) perkTimers[key] -= 1;
     }
+}
+
+function chooseEnemyType() {
+    const progression = selectedMode === "campaign"
+        ? (currentLevel - 1) / Math.max(1, campaignLevels.length - 1)
+        : Math.min(1, survivalIntensity / 8);
+    const roll = Math.random();
+
+    if (progression < 0.2) return "chaser";
+    if (roll < 0.52) return "chaser";
+    if (roll < 0.73) return "tank";
+    if (roll < 0.89) return "shooter";
+    return "exploder";
+}
+
+function spawnMariusBoss() {
+    if (mariusSpawned || selectedMode !== "campaign" || currentLevel < 10) return;
+    enemies.length = 0;
+    enemyProjectiles.length = 0;
+    const boss = new Enemy("boss");
+    boss.x = width / 2;
+    boss.y = -90;
+    enemies.push(boss);
+    mariusSpawned = true;
+    bossDefeated = false;
+    showBanner("Boss Incoming", "Marius has entered the battlefield");
+}
+
+function applyLevelUpgrade(newLevel) {
+    permanentDamageBoost += 0.045;
+    player.maxHealth = Math.min(170, player.maxHealth + 6);
+    player.health = Math.min(player.maxHealth, player.health + 24);
+
+    if (newLevel % 3 === 0 && lives < MAX_LIVES) {
+        lives += 1;
+    }
+
+    if (newLevel >= 10) {
+        showBanner("Bun Cannon Upgrade", "Max tier unlocked for final mission");
+    } else {
+        showBanner("Upgrade Applied", "+Damage and +Hull reinforced");
+    }
+
+    updateHealthBar();
+    updateHudStats();
 }
 
 function spawnWaveIfNeeded() {
@@ -1405,7 +1700,7 @@ function spawnWaveIfNeeded() {
     }
 
     if (frame % spawnEvery === 0) {
-        for (let i = 0; i < count; i++) enemies.push(new Enemy());
+        for (let i = 0; i < count; i++) enemies.push(new Enemy(chooseEnemyType()));
     }
 }
 
@@ -1414,9 +1709,14 @@ function checkCampaignProgress() {
     const cfg = campaignLevels[currentLevel - 1];
     if (!cfg) return;
 
+    if (currentLevel >= 10 && mariusSpawned && bossDefeated) {
+        endGame(true);
+        return;
+    }
+
     if (score >= cfg.target) {
         if (currentLevel >= campaignLevels.length) {
-            endGame(true);
+            spawnMariusBoss();
             return;
         }
 
@@ -1427,11 +1727,12 @@ function checkCampaignProgress() {
         projectiles.length = 0;
         drops.length = 0;
 
-        player.health = Math.min(player.maxHealth, player.health + 25);
+        applyLevelUpgrade(currentLevel);
         player.invulnerableUntil = Date.now() + 1600;
-        updateHealthBar();
         showBanner("Level " + currentLevel, "Threat index increasing");
         updateHudStats();
+
+        if (currentLevel >= 10) spawnMariusBoss();
     }
 }
 
@@ -1445,19 +1746,37 @@ function showBanner(title, subtitle) {
 function checkCollisions() {
     for (let pIndex = projectiles.length - 1; pIndex >= 0; pIndex--) {
         const proj = projectiles[pIndex];
+        let shouldRemoveProjectile = false;
 
         for (let eIndex = enemies.length - 1; eIndex >= 0; eIndex--) {
             const enemy = enemies[eIndex];
             if (Math.hypot(proj.x - enemy.x, proj.y - enemy.y) < enemy.radius + proj.radius) {
-                score += enemy.points;
-                saveData.totalKills += 1;
-                createParticles(enemy.x, enemy.y, enemy.color, 9);
-                maybeDropPowerup(enemy.x, enemy.y);
-                projectiles.splice(pIndex, 1);
-                enemies.splice(eIndex, 1);
+                enemy.health -= proj.damage;
+                createParticles(enemy.x, enemy.y, enemy.color, 6);
+
+                if (enemy.health <= 0) {
+                    score += enemy.points;
+                    saveData.totalKills += 1;
+                    createParticles(enemy.x, enemy.y, enemy.color, enemy.isBoss ? 26 : 10);
+                    maybeDropPowerup(enemy.x, enemy.y);
+                    maybeDropDebuff(enemy.x, enemy.y, enemy);
+                    if (enemy.isBoss) {
+                        bossDefeated = true;
+                        showBanner("Boss Down", "Marius defeated");
+                    }
+                    enemies.splice(eIndex, 1);
+                }
+
+                if (proj.pierce > 0) {
+                    proj.pierce -= 1;
+                } else {
+                    shouldRemoveProjectile = true;
+                }
                 break;
             }
         }
+
+        if (shouldRemoveProjectile) projectiles.splice(pIndex, 1);
     }
 
     for (let eIndex = enemies.length - 1; eIndex >= 0; eIndex--) {
@@ -1465,7 +1784,16 @@ function checkCollisions() {
         if (Math.hypot(player.x - enemy.x, player.y - enemy.y) < enemy.radius + player.radius) {
             player.takeDamage(enemy.damage);
             createParticles(enemy.x, enemy.y, enemy.color, 13);
-            enemies.splice(eIndex, 1);
+            if (!enemy.isBoss) enemies.splice(eIndex, 1);
+        }
+    }
+
+    for (let i = enemyProjectiles.length - 1; i >= 0; i--) {
+        const p = enemyProjectiles[i];
+        if (Math.hypot(player.x - p.x, player.y - p.y) < player.radius + p.radius) {
+            player.takeDamage(p.damage);
+            createParticles(p.x, p.y, "#ff6989", 8);
+            enemyProjectiles.splice(i, 1);
         }
     }
 
@@ -1488,7 +1816,13 @@ function initRun() {
     currentLevel = 1;
     survivalIntensity = 0;
     lives = diff.startLives;
-    perkTimers = { triShot: 0, rapidFire: 0, shield: 0 };
+    perkTimers = { triShot: 0, rapidFire: 0, shield: 0, powerShot: 0 };
+    enemyProjectiles = [];
+    permanentDamageBoost = 0;
+    damageDebuffUntil = 0;
+    moveDebuffUntil = 0;
+    mariusSpawned = false;
+    bossDefeated = false;
     runStartTime = Date.now();
 
     player = new Player();
@@ -1539,7 +1873,20 @@ function animate() {
     for (let i = enemies.length - 1; i >= 0; i--) {
         const e = enemies[i];
         e.update();
+        if (e.type === "exploder" && e.health <= 0) {
+            enemies.splice(i, 1);
+            continue;
+        }
         e.draw();
+    }
+
+    for (let i = enemyProjectiles.length - 1; i >= 0; i--) {
+        const p = enemyProjectiles[i];
+        p.update();
+        p.draw();
+        if (p.x < -30 || p.x > width + 30 || p.y < -30 || p.y > height + 30) {
+            enemyProjectiles.splice(i, 1);
+        }
     }
 
     for (let i = particles.length - 1; i >= 0; i--) {
@@ -1563,6 +1910,17 @@ function animate() {
 
     ctx.restore();
     frame += 1;
+
+    const now = performance.now();
+    fpsFrames += 1;
+    fpsAccumulator += now - fpsLastMark;
+    fpsLastMark = now;
+    if (fpsAccumulator >= 350) {
+        const fps = Math.round((fpsFrames * 1000) / fpsAccumulator);
+        fpsValueEl.textContent = String(fps);
+        fpsAccumulator = 0;
+        fpsFrames = 0;
+    }
 }
 
 function endGame(campaignCleared) {

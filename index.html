@@ -397,6 +397,13 @@
             margin-bottom: 8px;
         }
 
+        .meta-line {
+            margin: 0 0 12px;
+            color: #b4d0da;
+            font-size: 12px;
+            letter-spacing: 0.4px;
+        }
+
         .drop-tags {
             display: flex;
             flex-wrap: wrap;
@@ -528,6 +535,38 @@
             color: #fff2cc;
         }
 
+        #intermission-panel {
+            position: absolute;
+            inset: auto 16px 16px 16px;
+            z-index: 25;
+            pointer-events: auto;
+            border: 1px solid rgba(255, 201, 75, 0.45);
+            border-radius: 12px;
+            background: rgba(18, 14, 4, 0.9);
+            box-shadow: 0 0 18px rgba(255, 201, 75, 0.2);
+            padding: 12px;
+        }
+
+        .inter-title {
+            color: #ffe5a8;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 5px;
+        }
+
+        .inter-sub {
+            color: #f2d3a2;
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+
+        .inter-timer {
+            color: #9fd8e2;
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+
         @media (max-width: 760px) {
             .hud-top {
                 grid-template-columns: 1fr;
@@ -632,6 +671,12 @@
         </div>
         <div style="margin-bottom: 16px; color: #b4d0da;">
             Highest Level Reached: <span id="start-max-level">1</span>/10
+        </div>
+        <div class="meta-line">
+            Coins: <span id="meta-coins">0</span>
+            | Shards: <span id="meta-shards">0</span>
+            | Pass Lv: <span id="meta-pass-level">1</span>
+            | Talent Tokens: <span id="meta-talent-tokens">0</span>
         </div>
 
         <div class="choice-group guide-panel">
@@ -744,6 +789,16 @@
         <p id="level-banner-sub">Incoming threat wave...</p>
     </div>
 
+    <div id="intermission-panel" class="hidden">
+        <div class="inter-title">Intermission</div>
+        <div class="inter-sub" id="intermission-sub">Calm before the next wave.</div>
+        <div class="inter-timer" id="intermission-timer">Next wave in 35s</div>
+        <div class="row" style="justify-content: flex-start;">
+            <button id="inter-safe-btn" class="small-btn">Reinforce</button>
+            <button id="inter-risk-btn" class="small-btn">Risk Gamble</button>
+        </div>
+    </div>
+
     <div id="game-over-screen" class="hidden">
         <h1 id="game-over-title">Mission Failed</h1>
         <p>Final Score: <span id="final-score">0</span></p>
@@ -758,7 +813,7 @@
 <script>
 const STORAGE_KEY = "space_bun_v1";
 const LEGACY_STORAGE_KEY = "neon_space_defender_v3";
-const BUILD_ID = "v1.0.5";
+const BUILD_ID = "v1.0.6";
 const ACCOUNT_SAVE_PREFIX = STORAGE_KEY + "_account_";
 
 // Base64 helper for config decoding (security obfuscation for public repo)
@@ -804,18 +859,32 @@ const SHIP_STYLES = {
     spear: { label: "Spear", unlockWeaponLevel: 4 }
 };
 
-const campaignLevels = [
-    { target: 350, spawnFrames: 88, speedMult: 0.92 },
-    { target: 800, spawnFrames: 84, speedMult: 0.98 },
-    { target: 1300, spawnFrames: 80, speedMult: 1.03 },
-    { target: 1900, spawnFrames: 76, speedMult: 1.08 },
-    { target: 2600, spawnFrames: 72, speedMult: 1.12 },
-    { target: 3400, spawnFrames: 68, speedMult: 1.16 },
-    { target: 4300, spawnFrames: 64, speedMult: 1.2 },
-    { target: 5300, spawnFrames: 60, speedMult: 1.24 },
-    { target: 6400, spawnFrames: 56, speedMult: 1.28 },
-    { target: 7600, spawnFrames: 52, speedMult: 1.33 }
-];
+const ACT_COUNT = 10;
+const WAVES_PER_ACT = 6;
+const TOTAL_CAMPAIGN_WAVES = ACT_COUNT * WAVES_PER_ACT;
+
+let waveTargetAccumulator = 0;
+const campaignLevels = Array.from({ length: TOTAL_CAMPAIGN_WAVES }, (_, i) => {
+    const waveGlobal = i + 1;
+    const act = Math.floor(i / WAVES_PER_ACT) + 1;
+    const waveInAct = (i % WAVES_PER_ACT) + 1;
+    const bossWave = waveInAct === WAVES_PER_ACT;
+    const surgeWave = waveGlobal % 5 === 0;
+
+    const baseStep = 180 + act * 45 + waveInAct * 35;
+    const bossBonus = bossWave ? 260 : 0;
+    waveTargetAccumulator += baseStep + bossBonus;
+
+    return {
+        target: waveTargetAccumulator,
+        spawnFrames: Math.max(24, 94 - act * 3 - waveInAct * 2),
+        speedMult: 0.88 + act * 0.07 + waveInAct * 0.025,
+        act,
+        waveInAct,
+        bossWave,
+        surgeWave
+    };
+});
 
 const difficultySettings = {
     easy: {
@@ -861,10 +930,17 @@ const finalExtraLineEl = document.getElementById("final-extra-line");
 const levelBanner = document.getElementById("level-banner");
 const levelBannerTitle = document.getElementById("level-banner-title");
 const levelBannerSub = document.getElementById("level-banner-sub");
+const intermissionPanelEl = document.getElementById("intermission-panel");
+const intermissionSubEl = document.getElementById("intermission-sub");
+const intermissionTimerEl = document.getElementById("intermission-timer");
 
 const startCampaignBestEl = document.getElementById("start-campaign-best");
 const startSurvivalBestEl = document.getElementById("start-survival-best");
 const startMaxLevelEl = document.getElementById("start-max-level");
+const metaCoinsEl = document.getElementById("meta-coins");
+const metaShardsEl = document.getElementById("meta-shards");
+const metaPassLevelEl = document.getElementById("meta-pass-level");
+const metaTalentTokensEl = document.getElementById("meta-talent-tokens");
 const onlineAccountTextEl = document.getElementById("online-account-text");
 const onlineStatusEl = document.getElementById("online-status");
 const authEmailEl = document.getElementById("auth-email");
@@ -911,6 +987,7 @@ let runDropsCollected = 0;
 let selectedMode = "campaign";
 let selectedDifficulty = "easy";
 let currentLevel = 1;
+let currentWave = 1;
 let lives = 3;
 let survivalIntensity = 0;
 const MAX_LIVES = 4;
@@ -929,6 +1006,16 @@ let damageDebuffUntil = 0;
 let moveDebuffUntil = 0;
 let mariusSpawned = false;
 let bossDefeated = false;
+let intermissionActive = false;
+let intermissionUntil = 0;
+let intermissionChoiceLocked = false;
+let pendingRiskPenalty = false;
+let waveBossSpawned = false;
+let waveBossDefeated = false;
+let waveStreak = 0;
+let streakMultiplier = 1;
+let runCoins = 0;
+let runShards = 0;
 
 let fpsAccumulator = 0;
 let fpsFrames = 0;
@@ -986,6 +1073,11 @@ function loadSave() {
         totalKills: 0,
         totalDropsCollected: 0,
         techPoints: 0,
+        coins: 0,
+        shards: 0,
+        battlePassXp: 0,
+        battlePassLevel: 1,
+        talentTokens: 0,
         displayName: "",
         shipStyle: "bunny",
         upgrades: {
@@ -1017,6 +1109,11 @@ function loadSave() {
             totalKills: parsed.totalKills || 0,
             totalDropsCollected: parsed.totalDropsCollected || 0,
             techPoints: parsed.techPoints || 0,
+            coins: parsed.coins || 0,
+            shards: parsed.shards || 0,
+            battlePassXp: parsed.battlePassXp || 0,
+            battlePassLevel: parsed.battlePassLevel || 1,
+            talentTokens: parsed.talentTokens || 0,
             displayName: sanitizeDisplayName(parsed.displayName || ""),
             shipStyle: SHIP_STYLES[style] ? style : "bunny",
             upgrades: normalized
@@ -1036,6 +1133,11 @@ function defaultSaveData() {
         totalKills: 0,
         totalDropsCollected: 0,
         techPoints: 0,
+        coins: 0,
+        shards: 0,
+        battlePassXp: 0,
+        battlePassLevel: 1,
+        talentTokens: 0,
         displayName: "",
         shipStyle: "bunny",
         upgrades: { hull: 0, thruster: 0, weapon: 0, plasma: 0 }
@@ -1055,6 +1157,11 @@ function normalizeSaveSnapshot(raw) {
         totalKills: Math.max(0, Number(raw.totalKills) || 0),
         totalDropsCollected: Math.max(0, Number(raw.totalDropsCollected) || 0),
         techPoints: Math.max(0, Number(raw.techPoints) || 0),
+        coins: Math.max(0, Number(raw.coins) || 0),
+        shards: Math.max(0, Number(raw.shards) || 0),
+        battlePassXp: Math.max(0, Number(raw.battlePassXp) || 0),
+        battlePassLevel: Math.max(1, Number(raw.battlePassLevel) || 1),
+        talentTokens: Math.max(0, Number(raw.talentTokens) || 0),
         displayName: sanitizeDisplayName(raw.displayName || ""),
         shipStyle: style,
         upgrades: {
@@ -1075,6 +1182,11 @@ function applySaveData(snapshot) {
     saveData.totalKills = normalized.totalKills;
     saveData.totalDropsCollected = normalized.totalDropsCollected;
     saveData.techPoints = normalized.techPoints;
+    saveData.coins = normalized.coins;
+    saveData.shards = normalized.shards;
+    saveData.battlePassXp = normalized.battlePassXp;
+    saveData.battlePassLevel = normalized.battlePassLevel;
+    saveData.talentTokens = normalized.talentTokens;
     saveData.displayName = normalized.displayName;
     saveData.shipStyle = normalized.shipStyle;
     saveData.upgrades = { ...normalized.upgrades };
@@ -1123,6 +1235,11 @@ function mergeSaveSnapshots(primary, secondary) {
         totalKills: Math.max(a.totalKills, b.totalKills),
         totalDropsCollected: Math.max(a.totalDropsCollected, b.totalDropsCollected),
         techPoints: Math.max(a.techPoints, b.techPoints),
+        coins: Math.max(a.coins, b.coins),
+        shards: Math.max(a.shards, b.shards),
+        battlePassXp: Math.max(a.battlePassXp, b.battlePassXp),
+        battlePassLevel: Math.max(a.battlePassLevel, b.battlePassLevel),
+        talentTokens: Math.max(a.talentTokens, b.talentTokens),
         displayName: a.displayName || b.displayName,
         shipStyle: SHIP_STYLES[a.shipStyle] ? a.shipStyle : b.shipStyle,
         upgrades: {
@@ -1297,6 +1414,99 @@ function mergedMaxLevel() {
 
 function effectiveCombinedBest() {
     return Math.max(mergedCampaignBest(), mergedSurvivalBest());
+}
+
+function campaignConfigByWave(wave) {
+    return campaignLevels[Math.max(0, Math.min(campaignLevels.length - 1, wave - 1))];
+}
+
+function waveToAct(wave) {
+    return Math.floor((wave - 1) / WAVES_PER_ACT) + 1;
+}
+
+function waveInsideAct(wave) {
+    return ((wave - 1) % WAVES_PER_ACT) + 1;
+}
+
+function isSurgeWave() {
+    return selectedMode === "campaign" && campaignConfigByWave(currentWave).surgeWave;
+}
+
+function beginIntermission(nextWave) {
+    intermissionActive = true;
+    intermissionUntil = Date.now() + 35000;
+    intermissionChoiceLocked = false;
+    intermissionPanelEl.classList.remove("hidden");
+    const nextCfg = campaignConfigByWave(nextWave);
+    intermissionSubEl.textContent = "Act " + nextCfg.act + " Wave " + nextCfg.waveInAct + " incoming. Pick a moment choice.";
+    intermissionTimerEl.textContent = "Next wave in 35s";
+}
+
+function endIntermission() {
+    intermissionActive = false;
+    intermissionPanelEl.classList.add("hidden");
+}
+
+function chooseIntermissionSafe() {
+    if (!intermissionActive || intermissionChoiceLocked) return;
+    intermissionChoiceLocked = true;
+    const gainCoins = 35 + waveToAct(currentWave) * 5;
+    saveData.coins += gainCoins;
+    player.health = Math.min(player.maxHealth, player.health + 28);
+    updateHealthBar();
+    setOnlineStatus("Intermission: Reinforce chosen (+" + gainCoins + " coins).", false);
+}
+
+function chooseIntermissionRisk() {
+    if (!intermissionActive || intermissionChoiceLocked) return;
+    intermissionChoiceLocked = true;
+    const won = Math.random() < 0.55;
+    if (won) {
+        const jackpotShards = 1 + Math.floor(Math.random() * 3);
+        saveData.shards += jackpotShards;
+        saveData.coins += 60;
+        showBanner("Jackpot", "+" + jackpotShards + " shards and bonus coins");
+    } else {
+        pendingRiskPenalty = true;
+        showBanner("Risk Failed", "Next wave enemy speed increased");
+    }
+}
+
+function awardKillRewards(enemy) {
+    waveStreak += 1;
+    streakMultiplier = Math.min(4, 1 + Math.floor(waveStreak / 8) * 0.25);
+    const baseCoins = enemy.isBoss ? 35 : enemy.type === "tank" ? 9 : enemy.type === "shooter" ? 8 : enemy.type === "exploder" ? 10 : 6;
+    const coinGain = Math.floor(baseCoins * streakMultiplier);
+    runCoins += coinGain;
+    saveData.coins += coinGain;
+
+    if (Math.random() < (enemy.isBoss ? 0.9 : 0.12)) {
+        const shardGain = enemy.isBoss ? 2 : 1;
+        runShards += shardGain;
+        saveData.shards += shardGain;
+    }
+}
+
+function spawnActBoss(act) {
+    const boss = new Enemy("boss");
+    boss.maxHealth = 68 + act * 20;
+    boss.health = boss.maxHealth;
+    boss.speed = Math.max(0.7, boss.speed + act * 0.04);
+    boss.points = 1200 + act * 170;
+    boss.damage = 18 + act * 2;
+    boss.phase = 1;
+    boss.enraged = false;
+    if (act >= ACT_COUNT) {
+        boss.name = "Marius";
+    } else {
+        boss.name = "Act " + act + " Warden";
+        boss.color = "#b96cff";
+    }
+    boss.x = width / 2;
+    boss.y = -85;
+    enemies.push(boss);
+    waveBossSpawned = true;
+    waveBossDefeated = false;
 }
 
 function updateOnlineAccountText() {
@@ -1666,6 +1876,10 @@ function updateStartStats() {
     startCampaignBestEl.textContent = mergedCampaignBest();
     startSurvivalBestEl.textContent = mergedSurvivalBest();
     startMaxLevelEl.textContent = mergedMaxLevel();
+    metaCoinsEl.textContent = String(saveData.coins || 0);
+    metaShardsEl.textContent = String(saveData.shards || 0);
+    metaPassLevelEl.textContent = String(saveData.battlePassLevel || 1);
+    metaTalentTokensEl.textContent = String(saveData.talentTokens || 0);
     renderHangarPanel();
 }
 
@@ -1675,7 +1889,10 @@ function updateHudStats() {
     hudDifficultyEl.textContent = difficultySettings[selectedDifficulty].label;
 
     if (selectedMode === "campaign") {
-        hudRunInfoEl.textContent = "Campaign L" + currentLevel;
+        const w = waveInsideAct(currentWave);
+        hudRunInfoEl.textContent = intermissionActive
+            ? "Intermission A" + currentLevel + "W" + w
+            : "Campaign A" + currentLevel + "W" + w;
     } else {
         const seconds = Math.floor((Date.now() - runStartTime) / 1000);
         hudRunInfoEl.textContent = "Survival " + seconds + "s";
@@ -1690,6 +1907,7 @@ function updateHudStats() {
     if (perkTimers.shield > 0) labels.push("Shield " + Math.ceil(perkTimers.shield / 60) + "s");
     if (Date.now() < moveDebuffUntil) labels.push("Engine Down");
     if (Date.now() < damageDebuffUntil) labels.push("Weapon Jam");
+    if (selectedMode === "campaign") labels.push("Streak x" + streakMultiplier.toFixed(2));
     perksEl.textContent = labels.length ? "Perks: " + labels.join(" | ") : "Perks: none";
 }
 
@@ -2309,24 +2527,39 @@ class Enemy {
                 }
             }
         } else if (this.isBoss) {
+            const hpPct = this.health / this.maxHealth;
+            const nextPhase = hpPct > 0.66 ? 1 : hpPct > 0.33 ? 2 : 3;
+            if (!this.phase || this.phase !== nextPhase) {
+                this.phase = nextPhase;
+                if (this.phase === 3 && !this.enraged) {
+                    this.enraged = true;
+                    showBanner("Boss Enrage", (this.name || "Boss") + " has enraged");
+                } else {
+                    showBanner("Boss Phase", (this.name || "Boss") + " phase " + this.phase);
+                }
+            }
+
+            const phaseSpeedBoost = this.phase === 1 ? 1 : this.phase === 2 ? 1.12 : 1.26;
             this.x += Math.cos(ang) * this.speed;
             this.y += Math.sin(ang) * this.speed;
             this.shootCooldown -= 1;
             if (this.shootCooldown <= 0) {
-                const offsets = [-0.32, 0, 0.32];
+                const offsets = this.phase === 1 ? [-0.22, 0, 0.22] : this.phase === 2 ? [-0.35, -0.12, 0.12, 0.35] : [-0.5, -0.25, 0, 0.25, 0.5];
                 for (const off of offsets) {
                     const a = ang + off;
                     enemyProjectiles.push(new Projectile(
                         this.x,
                         this.y,
-                        { x: Math.cos(a) * 5.7, y: Math.sin(a) * 5.7 },
+                        { x: Math.cos(a) * (5.2 + this.phase * 0.5), y: Math.sin(a) * (5.2 + this.phase * 0.5) },
                         "#ff5f82",
-                        18,
+                        15 + this.phase * 3,
                         true
                     ));
                 }
-                this.shootCooldown = 34;
+                this.shootCooldown = this.phase === 1 ? 42 : this.phase === 2 ? 30 : 22;
             }
+            this.x += Math.cos(ang) * (this.speed * (phaseSpeedBoost - 1));
+            this.y += Math.sin(ang) * (this.speed * (phaseSpeedBoost - 1));
         } else {
             this.x += Math.cos(ang) * this.speed;
             this.y += Math.sin(ang) * this.speed;
@@ -2560,6 +2793,7 @@ function applyDrop(type) {
                 bonus += e.points;
                 saveData.totalKills += 1;
                 runKills += 1;
+                awardKillRewards(e);
                 maybeDropPowerup(e.x, e.y);
                 maybeDropDebuff(e.x, e.y, e);
                 if (e.isBoss) bossDefeated = true;
@@ -2578,6 +2812,7 @@ function applyDrop(type) {
             bonus += e.points;
             saveData.totalKills += 1;
             runKills += 1;
+            awardKillRewards(e);
             createParticles(e.x, e.y, "#ffb36a", 8);
             maybeDropDebuff(e.x, e.y, e);
             enemies.splice(i, 1);
@@ -2607,7 +2842,7 @@ function updatePerks() {
 
 function chooseEnemyType() {
     const progression = selectedMode === "campaign"
-        ? (currentLevel - 1) / Math.max(1, campaignLevels.length - 1)
+        ? (currentWave - 1) / Math.max(1, campaignLevels.length - 1)
         : Math.min(1, survivalIntensity / 8);
     const roll = Math.random();
 
@@ -2665,9 +2900,21 @@ function spawnWaveIfNeeded() {
     let count;
 
     if (selectedMode === "campaign") {
-        const cfg = campaignLevels[currentLevel - 1];
+        if (intermissionActive) return;
+        const cfg = campaignConfigByWave(currentWave);
+        currentLevel = cfg.act;
+
+        if (cfg.bossWave) {
+            if (!waveBossSpawned && !waveBossDefeated) {
+                spawnActBoss(cfg.act);
+            }
+            return;
+        }
+
         spawnEvery = Math.max(24, Math.floor(cfg.spawnFrames * diff.spawnScale));
-        count = 1 + Math.floor((currentLevel - 1) / 3);
+        if (pendingRiskPenalty) spawnEvery = Math.max(18, spawnEvery - 8);
+        count = 1 + Math.floor((cfg.act - 1) / 2) + Math.floor((cfg.waveInAct - 1) / 3);
+        if (cfg.surgeWave) count += 2;
     } else {
         const seconds = (Date.now() - runStartTime) / 1000;
         survivalIntensity = Math.floor(seconds / 25);
@@ -2682,33 +2929,63 @@ function spawnWaveIfNeeded() {
 
 function checkCampaignProgress() {
     if (selectedMode !== "campaign") return;
-    const cfg = campaignLevels[currentLevel - 1];
+    const cfg = campaignConfigByWave(currentWave);
     if (!cfg) return;
 
-    if (currentLevel >= 10 && mariusSpawned && bossDefeated) {
+    if (intermissionActive) {
+        const remain = Math.max(0, Math.ceil((intermissionUntil - Date.now()) / 1000));
+        intermissionTimerEl.textContent = "Next wave in " + remain + "s";
+        if (remain <= 0) {
+            if (!intermissionChoiceLocked) chooseIntermissionSafe();
+            endIntermission();
+            pendingRiskPenalty = false;
+        }
+        return;
+    }
+
+    if (currentWave > TOTAL_CAMPAIGN_WAVES) {
         endGame(true);
         return;
     }
 
-    if (score >= cfg.target) {
-        if (currentLevel >= campaignLevels.length) {
-            spawnMariusBoss();
+    const waveCleared = cfg.bossWave ? waveBossDefeated : score >= cfg.target;
+    if (waveCleared) {
+        if (cfg.surgeWave) {
+            const jackpot = 45 + cfg.act * 6;
+            saveData.coins += jackpot;
+            showBanner("Surge Cleared", "Jackpot +" + jackpot + " coins");
+        }
+
+        if (cfg.bossWave) {
+            const unlocks = 1 + Math.floor(cfg.act / 2);
+            saveData.talentTokens += unlocks;
+            showBanner("Act Cleared", "Unlocked " + unlocks + " talent tokens");
+        }
+
+        currentWave += 1;
+        waveBossSpawned = false;
+        waveBossDefeated = false;
+        waveStreak = 0;
+        streakMultiplier = 1;
+
+        if (currentWave > TOTAL_CAMPAIGN_WAVES) {
+            endGame(true);
             return;
         }
 
-        currentLevel += 1;
+        currentLevel = waveToAct(currentWave);
         if (currentLevel > saveData.maxLevelReached) saveData.maxLevelReached = currentLevel;
 
         enemies.length = 0;
+        enemyProjectiles.length = 0;
         projectiles.length = 0;
         drops.length = 0;
 
         applyLevelUpgrade(currentLevel);
         player.invulnerableUntil = Date.now() + 1600;
-        showBanner("Level " + currentLevel, "Threat index increasing");
+        beginIntermission(currentWave);
+        showBanner("Act " + currentLevel + " Wave " + waveInsideAct(currentWave), "Prepare your loadout");
         updateHudStats();
-
-        if (currentLevel >= 10) spawnMariusBoss();
     }
 }
 
@@ -2734,12 +3011,14 @@ function checkCollisions() {
                     score += enemy.points;
                     saveData.totalKills += 1;
                     runKills += 1;
+                    awardKillRewards(enemy);
                     createParticles(enemy.x, enemy.y, enemy.color, enemy.isBoss ? 26 : 10);
                     maybeDropPowerup(enemy.x, enemy.y);
                     maybeDropDebuff(enemy.x, enemy.y, enemy);
                     if (enemy.isBoss) {
                         bossDefeated = true;
-                        showBanner("Boss Down", "Marius defeated");
+                        waveBossDefeated = true;
+                        showBanner("Boss Down", (enemy.name || "Boss") + " defeated");
                     }
                     enemies.splice(eIndex, 1);
                 }
@@ -2791,8 +3070,11 @@ function initRun() {
     score = 0;
     runKills = 0;
     runDropsCollected = 0;
+    runCoins = 0;
+    runShards = 0;
     frame = 0;
     currentLevel = 1;
+    currentWave = 1;
     survivalIntensity = 0;
     lives = diff.startLives;
     perkTimers = { triShot: 0, rapidFire: 0, shield: 0, powerShot: 0 };
@@ -2802,6 +3084,15 @@ function initRun() {
     moveDebuffUntil = 0;
     mariusSpawned = false;
     bossDefeated = false;
+    intermissionActive = false;
+    intermissionUntil = 0;
+    intermissionChoiceLocked = false;
+    pendingRiskPenalty = false;
+    waveBossSpawned = false;
+    waveBossDefeated = false;
+    waveStreak = 0;
+    streakMultiplier = 1;
+    intermissionPanelEl.classList.add("hidden");
     runStartTime = Date.now();
 
     player = new Player();
@@ -2836,6 +3127,12 @@ function animate() {
     }
 
     for (const s of stars) s.draw();
+
+    if (selectedMode === "campaign" && !intermissionActive && isSurgeWave()) {
+        const pulse = 0.06 + (Math.sin(frame * 0.06) * 0.04 + 0.04);
+        ctx.fillStyle = "rgba(120, 10, 10," + pulse.toFixed(3) + ")";
+        ctx.fillRect(0, 0, width, height);
+    }
 
     spawnWaveIfNeeded();
     updatePerks();
@@ -2916,6 +3213,13 @@ function endGame(campaignCleared) {
 
     const earnedPoints = calculateRunTechPoints(campaignCleared);
     saveData.techPoints += earnedPoints;
+    const passGain = Math.floor(score / 16) + runCoins + (campaignCleared ? 220 : 0);
+    saveData.battlePassXp += passGain;
+    while (saveData.battlePassXp >= saveData.battlePassLevel * 500) {
+        saveData.battlePassXp -= saveData.battlePassLevel * 500;
+        saveData.battlePassLevel += 1;
+        saveData.talentTokens += 1;
+    }
     persistSave();
 
     if (firebaseReady && currentUser) {
@@ -2935,14 +3239,14 @@ function endGame(campaignCleared) {
 
     if (campaignCleared) {
         gameOverTitleEl.textContent = "Campaign Cleared";
-        finalExtraLineEl.textContent = "All 10 levels completed on " + difficultySettings[selectedDifficulty].label + " mode. +" + earnedPoints + " tech points.";
+        finalExtraLineEl.textContent = "Campaign complete. +" + earnedPoints + " tech points | +" + runCoins + " coins | +" + runShards + " shards.";
     } else if (selectedMode === "survival") {
         const seconds = Math.floor((Date.now() - runStartTime) / 1000);
         gameOverTitleEl.textContent = "Run Over";
-        finalExtraLineEl.textContent = "You survived " + seconds + " seconds. +" + earnedPoints + " tech points.";
+        finalExtraLineEl.textContent = "You survived " + seconds + " seconds. +" + earnedPoints + " tech points | +" + runCoins + " coins.";
     } else {
         gameOverTitleEl.textContent = "Mission Failed";
-        finalExtraLineEl.textContent = "Reached level " + currentLevel + " of 10. +" + earnedPoints + " tech points.";
+        finalExtraLineEl.textContent = "Reached Act " + currentLevel + " Wave " + waveInsideAct(currentWave) + ". +" + earnedPoints + " tech points | +" + runCoins + " coins.";
     }
 
     gameOverScreen.classList.remove("hidden");
@@ -3079,6 +3383,14 @@ document.getElementById("admin-rename-btn").addEventListener("click", () => {
 
 document.getElementById("admin-delete-btn").addEventListener("click", () => {
     adminDeleteUser();
+});
+
+document.getElementById("inter-safe-btn").addEventListener("click", () => {
+    chooseIntermissionSafe();
+});
+
+document.getElementById("inter-risk-btn").addEventListener("click", () => {
+    chooseIntermissionRisk();
 });
 
 adminTargetEmailEl.addEventListener("input", () => {

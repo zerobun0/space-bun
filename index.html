@@ -1429,7 +1429,8 @@ async function adminRenameUser() {
         await loadLeaderboard();
     } catch (e) {
         console.error(e);
-        setOnlineStatus("Rename failed. Check Firestore admin rules.", true);
+        const code = e && e.code ? String(e.code) : "unknown-error";
+        setOnlineStatus("Rename failed (" + code + ").", true);
     }
 }
 
@@ -1465,7 +1466,8 @@ async function adminDeleteUser() {
         await loadLeaderboard();
     } catch (e) {
         console.error(e);
-        setOnlineStatus("Delete failed. Check Firestore admin rules.", true);
+        const code = e && e.code ? String(e.code) : "unknown-error";
+        setOnlineStatus("Delete failed (" + code + ").", true);
     }
 }
 

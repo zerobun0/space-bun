@@ -264,6 +264,21 @@
             margin-bottom: 8px;
         }
 
+        .online-switch {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+
+        .online-view {
+            display: none;
+        }
+
+        .online-view.active {
+            display: block;
+        }
+
         .online-input {
             width: 100%;
             padding: 8px 10px;
@@ -366,6 +381,36 @@
             color: #ffd0e0;
             font-size: 11px;
             margin-bottom: 6px;
+        }
+
+        .guide-panel {
+            width: min(760px, calc(100% - 28px));
+            margin: 0 auto 14px;
+            text-align: left;
+            border: 1px solid rgba(255, 201, 75, 0.35);
+            background: rgba(22, 16, 2, 0.45);
+        }
+
+        .guide-line {
+            color: #f7deb3;
+            font-size: 12px;
+            margin-bottom: 8px;
+        }
+
+        .drop-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .drop-tag {
+            border: 1px solid rgba(255, 201, 75, 0.45);
+            color: #ffe8ad;
+            background: rgba(255, 201, 75, 0.12);
+            border-radius: 999px;
+            padding: 4px 8px;
+            font-size: 11px;
+            letter-spacing: 0.4px;
         }
 
         .small-note {
@@ -509,6 +554,10 @@
                 grid-template-columns: 1fr;
             }
 
+            .online-grid {
+                grid-template-columns: 1fr;
+            }
+
             .tiny-btn {
                 min-width: 120px;
             }
@@ -583,6 +632,22 @@
             Highest Level Reached: <span id="start-max-level">1</span>/10
         </div>
 
+        <div class="choice-group guide-panel">
+            <div class="choice-title">Pilot Briefing</div>
+            <div class="guide-line">Move: WASD / Arrows. Aim: Mouse. Fire: Hold click. Fly through drops to pick them up.</div>
+            <div class="drop-tags">
+                <span class="drop-tag">TRI Tri-Shot</span>
+                <span class="drop-tag">SPD Rapid Fire</span>
+                <span class="drop-tag">DMG Power Shot</span>
+                <span class="drop-tag">SHD Shield</span>
+                <span class="drop-tag">HP Repair</span>
+                <span class="drop-tag">+1 Extra Life</span>
+                <span class="drop-tag">ABM Blast Bomb</span>
+                <span class="drop-tag">NUK Nuke Bomb</span>
+                <span class="drop-tag">WEK Weakness Orb</span>
+            </div>
+        </div>
+
         <div class="choice-group hangar-panel">
             <div class="choice-title">Hangar Upgrades</div>
             <div class="hangar-head">
@@ -622,34 +687,44 @@
             <div class="choice-title">Online Account</div>
             <div id="online-account-text" class="hud-small"></div>
             <div class="online-status" id="online-status">Connecting online...</div>
-            <div class="online-warning">Passwords cannot be reset. If forgotten, create a new account.</div>
-            <div class="online-grid">
-                <input id="auth-username" class="online-input" type="text" maxlength="20" placeholder="Username">
-                <input id="auth-email" class="online-input" type="email" placeholder="Email">
-                <input id="auth-password" class="online-input" type="password" placeholder="Password">
+            <div class="online-switch">
+                <button class="pill active" id="online-view-account-btn">Account</button>
+                <button class="pill" id="online-view-board-btn">Leaderboard</button>
             </div>
-            <div class="row" style="justify-content: flex-start;">
-                <button id="register-btn" class="small-btn">Register</button>
-                <button id="login-btn" class="small-btn">Login</button>
-                <button id="logout-btn" class="small-btn">Logout</button>
-                <button id="refresh-lb-btn" class="small-btn">Refresh Board</button>
-            </div>
-            <div class="leaderboard">
-                <div class="leaderboard-title">Top Pilots</div>
-                <ol id="leaderboard-list"></ol>
-            </div>
-            <div id="admin-panel" class="admin-panel hidden">
-                <div class="admin-title">Admin Controls</div>
-                <div id="admin-selected-text" class="admin-selected">Select a pilot from leaderboard.</div>
-                <div class="admin-grid">
-                    <input id="admin-target-email" class="online-input" type="email" placeholder="Target email (or click pilot)">
-                    <input id="admin-new-name" class="online-input" type="text" maxlength="20" placeholder="New display name">
+            <div id="online-account-view" class="online-view active">
+                <div class="online-warning">Passwords cannot be reset. If forgotten, create a new account.</div>
+                <div class="online-grid">
+                    <input id="auth-username" class="online-input" type="text" maxlength="20" placeholder="Username">
+                    <input id="auth-email" class="online-input" type="email" placeholder="Email">
+                    <input id="auth-password" class="online-input" type="password" placeholder="Password">
                 </div>
                 <div class="row" style="justify-content: flex-start;">
-                    <button id="admin-rename-btn" class="small-btn">Set Name</button>
-                    <button id="admin-delete-btn" class="small-btn">Delete User</button>
+                    <button id="register-btn" class="small-btn">Register</button>
+                    <button id="login-btn" class="small-btn">Login</button>
+                    <button id="logout-btn" class="small-btn">Logout</button>
                 </div>
-                <div class="admin-help">Admin only. Changes sync to Firestore.</div>
+            </div>
+            <div id="online-board-view" class="online-view">
+                <div class="row" style="justify-content: flex-start; margin-bottom: 4px;">
+                    <button id="refresh-lb-btn" class="small-btn">Refresh Board</button>
+                </div>
+                <div class="leaderboard">
+                    <div class="leaderboard-title">Top Pilots</div>
+                    <ol id="leaderboard-list"></ol>
+                </div>
+                <div id="admin-panel" class="admin-panel hidden">
+                    <div class="admin-title">Admin Controls</div>
+                    <div id="admin-selected-text" class="admin-selected">Select a pilot from leaderboard.</div>
+                    <div class="admin-grid">
+                        <input id="admin-target-email" class="online-input" type="email" placeholder="Target email (or click pilot)">
+                        <input id="admin-new-name" class="online-input" type="text" maxlength="20" placeholder="New display name">
+                    </div>
+                    <div class="row" style="justify-content: flex-start;">
+                        <button id="admin-rename-btn" class="small-btn">Set Name</button>
+                        <button id="admin-delete-btn" class="small-btn">Delete User</button>
+                    </div>
+                    <div class="admin-help">Admin only. Changes sync to Firestore.</div>
+                </div>
             </div>
         </div>
 
@@ -657,11 +732,6 @@
 
         <div class="row">
             <button id="clear-save-btn" class="minor-btn">Reset Local Save</button>
-        </div>
-
-        <div class="small-note">
-            Random drops: Tri-Shot, Rapid Fire, Power Shot, Shield, Repair, Extra Life, Blast Bomb, Nuke Bomb, Weakness Orb.
-            Drops are picked up by flying through them.
         </div>
 
         <a href="https://github.com/zerobun0/space-bun" target="_blank" class="github-link">View Source on GitHub</a>
@@ -797,6 +867,10 @@ const authEmailEl = document.getElementById("auth-email");
 const authUsernameEl = document.getElementById("auth-username");
 const authPasswordEl = document.getElementById("auth-password");
 const leaderboardListEl = document.getElementById("leaderboard-list");
+const onlineViewAccountBtn = document.getElementById("online-view-account-btn");
+const onlineViewBoardBtn = document.getElementById("online-view-board-btn");
+const onlineAccountViewEl = document.getElementById("online-account-view");
+const onlineBoardViewEl = document.getElementById("online-board-view");
 const adminPanelEl = document.getElementById("admin-panel");
 const adminSelectedTextEl = document.getElementById("admin-selected-text");
 const adminTargetEmailEl = document.getElementById("admin-target-email");
@@ -1066,6 +1140,14 @@ function setOnlineControlsEnabled(enabled) {
     adminNewNameEl.disabled = !enabled;
 }
 
+function setOnlinePanelView(view) {
+    const accountActive = view === "account";
+    onlineAccountViewEl.classList.toggle("active", accountActive);
+    onlineBoardViewEl.classList.toggle("active", !accountActive);
+    onlineViewAccountBtn.classList.toggle("active", accountActive);
+    onlineViewBoardBtn.classList.toggle("active", !accountActive);
+}
+
 function normalizeEmail(email) {
     return String(email || "").trim().toLowerCase();
 }
@@ -1258,6 +1340,11 @@ async function initOnlineSystem() {
             if (user) {
                 await loadUserProfile();
                 await syncProgressToCloud();
+                authUsernameEl.value = saveData.displayName || "";
+                pendingRegistrationDisplayName = "";
+            } else {
+                pendingRegistrationDisplayName = "";
+                authUsernameEl.value = "";
             }
             await loadLeaderboard();
             updateStartStats();
@@ -1285,6 +1372,7 @@ async function loadUserProfile() {
     onlineProfile.campaignBest = data.campaignBest || 0;
     onlineProfile.survivalBest = data.survivalBest || 0;
     onlineProfile.maxLevelReached = data.maxLevelReached || 1;
+    saveData.displayName = sanitizeDisplayName(data.displayName || saveData.displayName || "");
 }
 
 async function syncProgressToCloud() {
@@ -1301,6 +1389,7 @@ async function syncProgressToCloud() {
     const userRef = dbApi.doc(dbApi.db, USER_COLLECTION, currentUser.uid);
     await dbApi.setDoc(userRef, {
         email: currentUser.email,
+        displayName: sanitizeDisplayName(saveData.displayName || pendingRegistrationDisplayName || currentUser.email.split("@")[0]),
         campaignBest: mergedCampaign,
         survivalBest: mergedSurvival,
         maxLevelReached: mergedLevel,
@@ -1489,16 +1578,24 @@ async function registerOnline() {
         return;
     }
 
+    const username = sanitizeDisplayName(authUsernameEl.value);
     const email = authEmailEl.value.trim();
     const password = authPasswordEl.value;
+    if (!username) {
+        setOnlineStatus("Enter a username for leaderboard.", true);
+        return;
+    }
     if (password.length < 6 || !email) {
         setOnlineStatus("Enter email and password (min 6 chars).", true);
         return;
     }
 
     try {
+        pendingRegistrationDisplayName = username;
+        saveData.displayName = username;
         await authApi.create(authApi.auth, email, password);
         setOnlineStatus("Account created. Logged in.");
+        authUsernameEl.value = username;
     } catch (e) {
         setOnlineStatus(e.message || "Register failed.", true);
     }
@@ -2817,6 +2914,15 @@ document.getElementById("refresh-lb-btn").addEventListener("click", () => {
     loadLeaderboard();
 });
 
+document.getElementById("online-view-account-btn").addEventListener("click", () => {
+    setOnlinePanelView("account");
+});
+
+document.getElementById("online-view-board-btn").addEventListener("click", () => {
+    setOnlinePanelView("board");
+    loadLeaderboard();
+});
+
 document.getElementById("admin-rename-btn").addEventListener("click", () => {
     adminRenameUser();
 });
@@ -2835,6 +2941,7 @@ adminTargetEmailEl.addEventListener("input", () => {
 
 setMode("campaign");
 setDifficulty("easy");
+setOnlinePanelView("account");
 initOnlineSystem();
 </script>
 </body>

@@ -1610,22 +1610,40 @@ class Enemy {
         }
 
         if (this.maxHealth > 1) {
-            const w = this.radius * 1.9;
-            const h = 5;
-            const pct = Math.max(0, this.health / this.maxHealth);
-            ctx.fillStyle = "rgba(15, 20, 24, 0.85)";
-            ctx.fillRect(-w / 2, -this.radius - 12, w, h);
-            ctx.fillStyle = this.isBoss ? "#ffd76f" : "#77f1ff";
-            ctx.fillRect(-w / 2, -this.radius - 12, w * pct, h);
-        }
-
-        if (this.isBoss) {
-            ctx.fillStyle = "#ffe8f6";
-            ctx.font = "bold 12px Segoe UI";
-            ctx.textAlign = "center";
-            ctx.fillText("Marius", 0, -this.radius - 20);
+            // Bars are rendered after restoring transform so they stay readable.
         }
         ctx.restore();
+
+        if (this.maxHealth > 1) {
+            const w = this.radius * 1.9;
+            const h = this.isBoss ? 8 : 5;
+            const pct = Math.max(0, this.health / this.maxHealth);
+            const barX = this.x - w / 2;
+            const barY = Math.max(12, this.y - this.radius - 16);
+
+            ctx.save();
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = "rgba(10, 16, 20, 0.9)";
+            ctx.fillRect(barX - 1, barY - 1, w + 2, h + 2);
+            ctx.fillStyle = "rgba(22, 32, 40, 0.95)";
+            ctx.fillRect(barX, barY, w, h);
+            ctx.fillStyle = this.isBoss ? "#ffd76f" : "#77f1ff";
+            ctx.fillRect(barX, barY, w * pct, h);
+            ctx.restore();
+
+            if (this.isBoss) {
+                ctx.save();
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = "rgba(255, 214, 120, 0.5)";
+                ctx.fillStyle = "#ffe8f6";
+                ctx.font = "bold 16px Segoe UI";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "bottom";
+                const labelY = Math.max(14, barY - 5);
+                ctx.fillText("Marius", this.x, labelY);
+                ctx.restore();
+            }
+        }
     }
 
     update() {

@@ -25,18 +25,6 @@ https://zerobun0.github.io/space-bun/
   - Extra Life
   - Shockwave Bomb
 
-## Screenshots
-
-![Start screen](screenshots/01-menu-default.png)
-
-![Survival hard menu](screenshots/02-menu-survival-hard.png)
-
-![Live gameplay](screenshots/03-gameplay-live.png)
-
-![Level banner](screenshots/04-level-banner.png)
-
-![Game over screen](screenshots/05-game-over.png)
-
 ## Controls
 
 - Move: WASD or Arrow Keys
